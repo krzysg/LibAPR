@@ -6,6 +6,7 @@
 #include "data_structures/Mesh/MeshData.hpp"
 #include "algorithm/ComputeGradient.hpp"
 #include "algorithm/ComputeGradientCuda.hpp"
+#include <random>
 
 namespace {
     /**
@@ -154,9 +155,12 @@ namespace {
     }
 
     TEST(ComputeGradientTest, Corners3DCudaBigCompareToOld) {
-        MeshData<float> m(1024, 512, 1024, 0);
+        MeshData<float> m(512, 512, 512, 0);
+        std::random_device rd;
+        std::mt19937 mt(rd());
+        std::uniform_real_distribution<double> dist(0.0, 1.0);
         for (size_t i = 0; i < m.mesh.size(); ++i) {
-            m.mesh[i] = rand();
+            m.mesh[i] =dist(mt);
         }
         APRTimer timer;
         timer.verbose_flag=true;
@@ -179,7 +183,7 @@ namespace {
         bool once = true;
         int cnt=0;
         for (size_t i = 0; i < grad.mesh.size(); ++i) {
-            if (std::abs(grad.mesh[i] - gradCuda.mesh[i]) < 0.0001) {
+            if (std::abs(grad.mesh[i] - gradCuda.mesh[i]) > 0.0001) {
                 if (once) { std::cout << "ERR " << grad.mesh[i] << " vs " <<  gradCuda.mesh[i] << std::endl; once = false; }
                 cnt++;
             }
