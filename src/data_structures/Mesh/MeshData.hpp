@@ -19,7 +19,7 @@
 #include <sstream>
 #include <iostream>
 #include <iomanip>
-
+#include <algorithm>
 #include "../../misc/APRTimer.hpp"
 
 
