@@ -6,7 +6,7 @@
 #include <cuda.h>
 #include <device_launch_parameters.h>
 
-__global__ void gradient2(float *input, size_t x_num, size_t y_num, size_t z_num, float *grad, size_t x_num_ds, size_t y_num_ds, float hx, float hy, float hz) {
+__global__ void gradient(float *input, size_t x_num, size_t y_num, size_t z_num, float *grad, size_t x_num_ds, size_t y_num_ds, float hx, float hy, float hz) {
     int xi = ((blockIdx.x * blockDim.x) + threadIdx.x) * 2;
     int yi = ((blockIdx.y * blockDim.y) + threadIdx.y) * 2;
     int zi = ((blockIdx.z * blockDim.z) + threadIdx.z) * 2;
@@ -62,7 +62,7 @@ void cudaDownsampledGradient(const MeshData<float> &input, MeshData<float> &grad
     std::cout << "Number of blocks  (x/y/z):  " << numBlocks.x << "/" << numBlocks.y << "/" << numBlocks.z << std::endl;
     std::cout << "Number of threads (x/y/z): " << threadsPerBlock.x << "/" << threadsPerBlock.y << "/" << threadsPerBlock.z << std::endl;
 
-    gradient2<<<numBlocks,threadsPerBlock>>>(cudaInput, input.x_num, input.y_num, input.z_num, cudaGrad, grad.x_num, grad.y_num, hx, hy, hz);
+    gradient<<<numBlocks,threadsPerBlock>>>(cudaInput, input.x_num, input.y_num, input.z_num, cudaGrad, grad.x_num, grad.y_num, hx, hy, hz);
     cudaDeviceSynchronize();
     timer.stop_timer();
 
@@ -73,5 +73,41 @@ void cudaDownsampledGradient(const MeshData<float> &input, MeshData<float> &grad
     cudaFree(cudaInput);
     cudaMemcpy((void*)grad.mesh.get(), cudaGrad, gradSize, cudaMemcpyDeviceToHost);
     cudaFree(cudaGrad);
+    timer.stop_timer();
+}
+
+__global__ void bsplineY(float *input, float lambda, float tol) {
+    input[0] = 123;
+}
+
+void cudaFilterBsplineYdirection(MeshData<float> &input, float lambda, float tolerance) {
+    APRTimer timer;
+    timer.verbose_flag=true;
+
+    timer.start_timer("cuda: memory alloc + data transfer to device");
+    size_t inputSize = input.mesh.size() * sizeof(float);
+    float *cudaInput;
+    cudaMalloc(&cudaInput, inputSize);
+    cudaMemcpy(cudaInput, input.mesh.get(), inputSize, cudaMemcpyHostToDevice);
+    timer.stop_timer();
+
+    timer.start_timer("cuda: calculations on device");
+    dim3 threadsPerBlock(4, 4, 4);
+    dim3 numBlocks((input.x_num + threadsPerBlock.x - 1)/threadsPerBlock.x,
+                   (input.y_num + threadsPerBlock.y - 1)/threadsPerBlock.y,
+                   (input.z_num + threadsPerBlock.z - 1)/threadsPerBlock.z);
+    std::cout << "Number of blocks  (x/y/z):  " << numBlocks.x << "/" << numBlocks.y << "/" << numBlocks.z << std::endl;
+    std::cout << "Number of threads (x/y/z): " << threadsPerBlock.x << "/" << threadsPerBlock.y << "/" << threadsPerBlock.z << std::endl;
+
+    bsplineY<<<numBlocks,threadsPerBlock>>>(cudaInput, 3.0, 0.0001);
+    cudaDeviceSynchronize();
+    timer.stop_timer();
+
+    timer.start_timer("cuda: transfer data from device and freeing memory");
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess)printf("Error: %s\n", cudaGetErrorString(err));
+
+    cudaMemcpy((void*)input.mesh.get(), cudaInput, inputSize, cudaMemcpyDeviceToHost);
+    cudaFree(cudaInput);
     timer.stop_timer();
 }

@@ -199,6 +199,46 @@ namespace {
         EXPECT_EQ(cnt, 0);
     }
 
+
+    TEST(ComputeGradientTest, 2D_XY_BSPLINE_Y_DIR) {
+            MeshData<float> m(5, 7, 1, 0);
+            // expect gradient is 3x3 X/Y plane
+            float expect[] = {1.41, 0, 4.24,
+                              0, 0, 0,
+                              2.82, 0, 5.65};
+            // put values in corners
+            m(2, 3, 0) = 1;
+            m(0, 0, 0) = 2;
+            m(4, 0, 0) = 4;
+            m(0, 6, 0) = 6;
+            m(4, 6, 0) = 8;
+
+            // Calculate bspline on CPU
+            MeshData<float> mCpu(m, true);
+            ComputeGradient cg;
+            cg.bspline_filt_rec_y(mCpu, 3.0, 0.0001);
+
+            // Calculate bspline on GPU
+            MeshData<float> mGpu(m, true);
+            cudaFilterBsplineYdirection(mGpu, 3.0, 0.0001);
+
+            // Compare GPU vs CPU
+            bool once = true;
+            int cnt = 0;
+            for (size_t i = 0; i < mCpu.mesh.size(); ++i) {
+                if (std::abs(mCpu.mesh[i] - mGpu.mesh[i]) > 0.0001) {
+                    if (once) {
+                        std::cout << "ERR " << mCpu.mesh[i] << " vs " << mGpu.mesh[i] << std::endl;
+                        once = false;
+                    }
+                    cnt++;
+                }
+            }
+            std::cout << "Number of errors / Number of gradient points: " << cnt << " / " << mCpu.mesh.size() << std::endl;
+            mGpu.printMesh(10);
+            EXPECT_EQ(cnt, 0);
+    }
+
 #endif // APR_USE_CUDA
 
 }

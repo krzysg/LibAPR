@@ -9,6 +9,6 @@
 
 
 void cudaDownsampledGradient(const MeshData<float> &input, MeshData<float> &grad, const float hx, const float hy, const float hz);
-
+void cudaFilterBsplineYdirection(MeshData<float> &input, float lambda, float tolerance);
 
 #endif //LIBAPR_COMPUTEGRADIENTCUDA_HPP
