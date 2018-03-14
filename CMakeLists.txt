@@ -1,8 +1,8 @@
 ###############################################################################
 # APR - Adaptive Particle Representation
 ###############################################################################
-cmake_minimum_required(VERSION 3.2)
-project(LibAPR DESCRIPTION "Adaptive Particle Representation library")
+cmake_minimum_required(VERSION 3.9)
+project(LibAPR DESCRIPTION "Adaptive Particle Representation library" LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -122,20 +122,13 @@ set(SOURCE_FILES_RAYCAST src/numerics/APRRaycaster.cpp src/vis/Camera.cpp src/vi
 
 add_library(aprObjLib OBJECT ${SOURCE_FILES} ${SOURCE_FILES_RAYCAST})
 
-set(CUDA_TARGET "")
 set(CUDA_APR_TARGET "")
 if(APR_USE_CUDA)
     message(STATUS "APR: Building CUDA for APR")
-    set(CUDA_PROPAGATE_HOST_FLAGS OFF)
-    find_package(CUDA REQUIRED)
-    message (STATUS "CUDA LIBS: ${CUDA_LIBRARIES}")
-    add_library(cudaLib STATIC IMPORTED)
-    set_property(TARGET cudaLib PROPERTY IMPORTED_LOCATION ${CUDA_cudart_static_LIBRARY})
-    set(CUDA_TARGET cudaLib)
-    set(CUDA_APR_TARGET cudaAprLib)
-    list(APPEND CUDA_NVCC_FLAGS "-Xptxas -O3,-v --use_fast_math -std=c++14;-O3; -Xcompiler -fPIC")
-    cuda_add_library(${CUDA_APR_TARGET} STATIC src/algorithm/number.cu src/algorithm/ComputeGradientCuda.cu)
-#    target_link_libraries(${CUDA_APR_TARGET} INTERFACE ${CUDA_LIBRARIES})
+    set(CMAKE_CUDA_STANDARD 14)
+    set(CMAKE_CUDA_FLAGS "--cudart shared")
+    enable_language(CUDA)
+    set(APR_CUDA_SROUCE_FILES src/algorithm/number.cu src/algorithm/ComputeGradientCuda.cu)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DAPR_USE_CUDA")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DAPR_USE_CUDA")
 endif()
@@ -143,19 +136,15 @@ endif()
 if(APR_BUILD_STATIC_LIB)
     # generate static library used as a intermediate step in generating fat lib
     set(STATIC_TARGET_NAME staticLib)
-    add_library(${STATIC_TARGET_NAME} STATIC $<TARGET_OBJECTS:aprObjLib>)
+    add_library(${STATIC_TARGET_NAME} STATIC $<TARGET_OBJECTS:aprObjLib> ${APR_CUDA_SROUCE_FILES})
+    target_compile_features(${STATIC_TARGET_NAME} PUBLIC cxx_std_14)
     set_target_properties(${STATIC_TARGET_NAME} PROPERTIES OUTPUT_NAME ${LIBRARY_NAME})
-        message(STATUS "APR: STATIC NAME ${STATIC_TARGET_NAME} ${LIBRARY_NAME}")
+    set_target_properties(${STATIC_TARGET_NAME} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
     target_include_directories(${STATIC_TARGET_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src> $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}>)
-    target_link_libraries(${STATIC_TARGET_NAME} PRIVATE ${CUDA_CUDART_LIBRARY} )
-    include(cmake/AddStaticLibs.cmake)
-    if(APR_USE_CUDA)
-#        add_dependencies(${STATIC_TARGET_NAME} ${CUDA_APR_TARGET})
-#        target_link_libraries(${STATIC_TARGET_NAME} PRIVATE ${CUDA_APR_TARGET})
-        addStaticLibs(${STATIC_TARGET_NAME} ${CUDA_APR_TARGET})
-    endif()
+
     # generate fat static library by adding dependencies
     if(NOT BLOSC_FOUND)
+        include(cmake/AddStaticLibs.cmake)
         addStaticLibs(${STATIC_TARGET_NAME} blosc_static)
     endif()
 endif()
@@ -163,17 +152,16 @@ endif()
 if(APR_BUILD_SHARED_LIB)
 # generate fat shared library
     set(SHARED_TARGET_NAME sharedLib)
-    add_library(${SHARED_TARGET_NAME} SHARED $<TARGET_OBJECTS:aprObjLib>)
+    add_library(${SHARED_TARGET_NAME} SHARED $<TARGET_OBJECTS:aprObjLib> ${APR_CUDA_SROUCE_FILES})
+
     target_include_directories(${SHARED_TARGET_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src> $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}>)
     set_target_properties(${SHARED_TARGET_NAME} PROPERTIES OUTPUT_NAME ${LIBRARY_NAME})
     set_target_properties(${SHARED_TARGET_NAME} PROPERTIES LIBRARY_OUTPUT_NAME ${LIBRARY_NAME})
-    set_target_properties(${SHARED_TARGET_NAME} PROPERTIES SUFFIX "")
-    set_target_properties(${SHARED_TARGET_NAME} PROPERTIES PREFIX "")
     set_target_properties(${SHARED_TARGET_NAME} PROPERTIES ARCHIVE_OUTPUT_NAME ${LIBRARY_NAME})
     set_property(TARGET ${SHARED_TARGET_NAME} PROPERTY VERSION ${APR_VERSION_STRING})
     set_property(TARGET ${SHARED_TARGET_NAME} PROPERTY SOVERSION ${APR_VERSION_MAJOR})
 
-    target_link_libraries(${SHARED_TARGET_NAME} PRIVATE ${HDF5_LIBRARIES} ${TIFF_LIBRARIES})
+    target_link_libraries(${SHARED_TARGET_NAME} PRIVATE ${HDF5_LIBRARIES} ${TIFF_LIBRARIES}  ${CUDA_CUDART_LIBRARY})
     if(BLOSC_FOUND)
         target_link_libraries(${SHARED_TARGET_NAME} PRIVATE ${BLOSC_LIBRARIES} ${ZLIB_LIBRARIES})
     else()
@@ -184,18 +172,6 @@ if(APR_BUILD_SHARED_LIB)
             target_link_libraries(${SHARED_TARGET_NAME} PRIVATE -Wl,--whole-archive $<TARGET_FILE:blosc_static> -Wl,--no-whole-archive)
         endif()
     endif()
-
-    # Handle CUDA lib
-    if(APR_USE_CUDA)
-        message(STATUS "APR: Adding dependencies to ${CUDA_APR_TARGET}")
-        add_dependencies(${SHARED_TARGET_NAME} ${CUDA_APR_TARGET})
-        if (APPLE)
-            target_link_libraries(${SHARED_TARGET_NAME} PUBLIC ${CUDA_CUDART_LIBRARY} -Wl,-force_load,$<TARGET_FILE:${CUDA_APR_TARGET}>)
-        else()
-            target_link_libraries(${SHARED_TARGET_NAME} PUBLIC ${CUDA_CUDART_LIBRARY} -Wl,--whole-archive $<TARGET_FILE:${CUDA_APR_TARGET}> -Wl,--no-whole-archive)
-        endif()
-    endif()
-
 endif()
 
 # choose one of the build libraries to be used later for tests and/or examples
@@ -204,7 +180,6 @@ if (APR_BUILD_SHARED_LIB)
 else()
     set(APR_BUILD_LIBRARY ${STATIC_TARGET_NAME})
 endif()
-
 
 ###############################################################################
 # Install APR library
@@ -264,8 +239,8 @@ if(APR_BUILD_EXAMPLES)
 endif(APR_BUILD_EXAMPLES)
 
 include_directories(src)
-message(STATUS "APR: GPUHACK Examples")
-add_subdirectory(gpuhack)
+#message(STATUS "APR: GPUHACK Examples")
+#add_subdirectory(gpuhack)
 
 ###############################################################################
 # Tests
