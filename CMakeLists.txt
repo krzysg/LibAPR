@@ -2,15 +2,15 @@
 # APR - Adaptive Particle Representation
 ###############################################################################
 cmake_minimum_required(VERSION 3.9)
-project(LibAPR DESCRIPTION "Adaptive Particle Representation library" LANGUAGES CXX C)
+project(LibAPR DESCRIPTION "Adaptive Particle Representation library")
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # APR build options:
 option(APR_INSTALL "Install APR library" ON)
-option(APR_BUILD_SHARED_LIB "Builds shared library" OFF)
-option(APR_BUILD_STATIC_LIB "Builds shared library" ON)
+option(APR_BUILD_SHARED_LIB "Builds shared library" ON)
+option(APR_BUILD_STATIC_LIB "Builds shared library" OFF)
 option(APR_BUILD_EXAMPLES "Build APR examples" OFF)
 option(APR_TESTS "Build APR tests" OFF)
 option(APR_PREFER_EXTERNAL_GTEST "When found, use the installed GTEST libs instead of included sources" OFF)
@@ -128,10 +128,21 @@ if(APR_USE_CUDA)
     set(CMAKE_CUDA_STANDARD 14)
     set(CMAKE_CUDA_FLAGS "--cudart shared")
     enable_language(CUDA)
-    set(APR_CUDA_SROUCE_FILES src/algorithm/number.cu src/algorithm/ComputeGradientCuda.cu)
+    set(APR_CUDA_SROUCE_FILES src/algorithm/ComputeGradientCuda.cu)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DAPR_USE_CUDA")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DAPR_USE_CUDA")
+    include_directories(${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 endif()
+
+#message(STATUS "---------------------- VARS BEG ---------------------")
+#get_cmake_property(_variableNames VARIABLES)
+#foreach (_variableName ${_variableNames})
+#    string(TOLOWER ${_variableName} currVar)
+#    if (${currVar} MATCHES ".*cuda.*")
+#        message(STATUS "${_variableName}=${${_variableName}}")
+#    endif()
+#endforeach()
+#message(STATUS "---------------------- VARS END ---------------------")
 
 if(APR_BUILD_STATIC_LIB)
     # generate static library used as a intermediate step in generating fat lib
@@ -139,7 +150,7 @@ if(APR_BUILD_STATIC_LIB)
     add_library(${STATIC_TARGET_NAME} STATIC $<TARGET_OBJECTS:aprObjLib> ${APR_CUDA_SROUCE_FILES})
     target_compile_features(${STATIC_TARGET_NAME} PUBLIC cxx_std_14)
     set_target_properties(${STATIC_TARGET_NAME} PROPERTIES OUTPUT_NAME ${LIBRARY_NAME})
-    set_target_properties(${STATIC_TARGET_NAME} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+    set_target_properties(${STATIC_TARGET_NAME} PROPERTIES CUDA_SEPARABLE_COMPILATION OFF)
     target_include_directories(${STATIC_TARGET_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src> $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}>)
 
     # generate fat static library by adding dependencies
@@ -238,7 +249,7 @@ if(APR_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif(APR_BUILD_EXAMPLES)
 
-include_directories(src)
+#include_directories(src)
 #message(STATUS "APR: GPUHACK Examples")
 #add_subdirectory(gpuhack)
 

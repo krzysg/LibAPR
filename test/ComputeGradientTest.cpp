@@ -108,6 +108,65 @@ namespace {
         ASSERT_TRUE(compare(grad, expect, 0.01));
     }
 
+    TEST(ComputeGradientTest, 2D_XY_BSPLINE_Y_DIR) {
+        {   // values in corners and in middle
+            MeshData<float> m(5, 7, 1, 0);
+            // expect gradient is 3x3 X/Y plane
+            float expect[] = {0.58, 0.00, 0.00, 0.08, 0.00, 0.00, 1.71,
+                              0.56, 0.00, 0.00, 0.11, 0.00, 0.00, 1.51,
+                              0.63, 0.00, 0.00, 0.11, 0.00, 0.00, 1.42,
+                              0.88, 0.00, 0.00, 0.00, 0.00, 0.00, 1.75,
+                              1.17, 0.00, 0.00, 0.00, 0.00, 0.00, 2.34};
+            // put values in corners
+            m(2, 3, 0) = 1;
+            m(0, 0, 0) = 2;
+            m(4, 0, 0) = 4;
+            m(0, 6, 0) = 6;
+            m(4, 6, 0) = 8;
+
+            // Calculate bspline on CPU
+            MeshData<float> mCpu(m, true);
+            ComputeGradient cg;
+            cg.bspline_filt_rec_y(mCpu, 3.0, 0.0001);
+            ASSERT_TRUE(compare(mCpu, expect, 0.01));
+        }
+        {   // single point set in the middle
+            MeshData<float> m(9, 3, 1, 0);
+            // expect gradient is 3x3 X/Y plane
+            float expect[] = {0.00, 0.01, 0.00,
+                              0.00, 0.05, 0.00,
+                              0.00, 0.12, 0.00,
+                              0.00, 0.22, 0.00,
+                              0.00, 0.28, 0.00,
+                              0.00, 0.19, 0.00,
+                              0.00, 0.08, 0.00,
+                              0.00, 0.00, 0.00,
+                              0.00, 0.00, 0.00};
+            // put values in corners
+            m(4, 1, 0) = 1;
+
+            // Calculate bspline on CPU
+            MeshData<float> mCpu(m, true);
+            ComputeGradient cg;
+            cg.bspline_filt_rec_y(mCpu, 3.0, 0.0001);
+            ASSERT_TRUE(compare(mCpu, expect, 0.01));
+        }
+        {   // two pixel image 1x2x1
+            MeshData<float> m(2, 1, 1, 0);
+            // expect gradient is 3x3 X/Y plane
+            float expect[] = {0.41,
+                              0.44 };
+            // put values in corners
+            m(0, 0, 0) = 1;
+
+            // Calculate bspline on CPU
+            MeshData<float> mCpu(m, true);
+            ComputeGradient cg;
+            cg.bspline_filt_rec_y(mCpu, 3.0, 0.0001);
+//            ASSERT_TRUE(compare(mCpu, expect, 0.01));
+        }
+    }
+
 #ifdef APR_USE_CUDA
 
     TEST(ComputeGradientTest, 2D_XY_CUDA) {
@@ -200,27 +259,29 @@ namespace {
     }
 
 
-    TEST(ComputeGradientTest, 2D_XY_BSPLINE_Y_DIR) {
-            MeshData<float> m(5, 7, 1, 0);
-            // expect gradient is 3x3 X/Y plane
-            float expect[] = {1.41, 0, 4.24,
-                              0, 0, 0,
-                              2.82, 0, 5.65};
-            // put values in corners
-            m(2, 3, 0) = 1;
-            m(0, 0, 0) = 2;
-            m(4, 0, 0) = 4;
-            m(0, 6, 0) = 6;
-            m(4, 6, 0) = 8;
+    TEST(ComputeGradientTest, 2D_XY_BSPLINE_Y_DIR_CUDA) {
+        {
+            APRTimer timer;
+            timer.verbose_flag = true;
+
+            MeshData<float> m(9, 3, 1, 0);
+            // put value in the middle
+            m(4, 1, 0) = 2;
 
             // Calculate bspline on CPU
             MeshData<float> mCpu(m, true);
             ComputeGradient cg;
+            timer.start_timer("CPU y-dir spline");
             cg.bspline_filt_rec_y(mCpu, 3.0, 0.0001);
+            timer.stop_timer();
+            mCpu.printMesh(5, 1);
 
             // Calculate bspline on GPU
             MeshData<float> mGpu(m, true);
+            timer.start_timer("GPU y-dir spline");
             cudaFilterBsplineYdirection(mGpu, 3.0, 0.0001);
+            timer.stop_timer();
+            mGpu.printMesh(5, 1);
 
             // Compare GPU vs CPU
             bool once = true;
@@ -235,8 +296,54 @@ namespace {
                 }
             }
             std::cout << "Number of errors / Number of gradient points: " << cnt << " / " << mCpu.mesh.size() << std::endl;
-            mGpu.printMesh(10);
             EXPECT_EQ(cnt, 0);
+        }
+        {
+            std::cout << "\n---------------------------------\n\n";
+            APRTimer timer;
+            timer.verbose_flag = true;
+
+            // Generate random mesh
+            MeshData<float> m(256, 512, 512, 0);
+            std::cout << m << std::endl;
+            std::random_device rd;
+            std::mt19937 mt(rd());
+            std::uniform_real_distribution<double> dist(0.0, 1.0);
+            for (size_t i = 0; i < m.mesh.size(); ++i) {
+                m.mesh[i] = dist(mt);
+            }
+
+            // Calculate bspline on CPU
+            MeshData<float> mCpu(m, true);
+            ComputeGradient cg;
+            timer.start_timer("CPU y-dir spline");
+            cg.bspline_filt_rec_y(mCpu, 3.0, 0.0001);
+            timer.stop_timer();
+//            mCpu.printMesh(5, 1);
+
+            // Calculate bspline on GPU
+            MeshData<float> mGpu(m, true);
+            timer.start_timer("GPU y-dir spline");
+            cudaFilterBsplineYdirection(mGpu, 3.0, 0.0001);
+            timer.stop_timer();
+//            mGpu.printMesh(5, 1);
+
+            // Compare GPU vs CPU
+            bool once = true;
+            int cnt = 0;
+            for (size_t i = 0; i < mCpu.mesh.size(); ++i) {
+                if (std::abs(mCpu.mesh[i] - mGpu.mesh[i]) > 0.0001) {
+                    if (once) {
+                        std::cout << "ERR " << mCpu.mesh[i] << " vs " << mGpu.mesh[i] << std::endl;
+                        once = false;
+                    }
+                    cnt++;
+                }
+            }
+            std::cout << "Number of errors / Number of gradient points: " << cnt << " / " << mCpu.mesh.size()
+                      << std::endl;
+            EXPECT_EQ(cnt, 0);
+        }
     }
 
 #endif // APR_USE_CUDA

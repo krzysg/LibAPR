@@ -175,7 +175,14 @@ void ComputeGradient::bspline_filt_rec_y(MeshData<T>& image,float lambda,float t
     const size_t k0 = std::max(std::min((size_t)(ceil(std::abs(log(tol)/log(rho)))),z_num),(size_t)2);
     const float norm_factor = pow((1 - 2.0*rho*cos(omg) + pow(rho,2)),2);
 
+    //////////////////////////////////////////////////////////////
+    //
+    //  Setting up boundary conditions
+    //
+    //////////////////////////////////////////////////////////////
+
     // for boundaries
+    std::cout << "k0=" << k0 << std::endl;
     std::vector<float> impulse_resp_vec_f(k0+3);  //forward
     for (size_t k = 0; k < (k0+3); ++k) {
         impulse_resp_vec_f[k] = impulse_resp(k,rho,omg);
@@ -213,11 +220,8 @@ void ComputeGradient::bspline_filt_rec_y(MeshData<T>& image,float lambda,float t
         bc4_vec[k] += 2*impulse_resp_vec_b[k];
     }
 
-    APRTimer btime;
-    btime.verbose_flag = false;
 
     //forwards direction
-    btime.start_timer("forward_loop_y");
     #ifdef HAVE_OPENMP
 	#pragma omp parallel for default(shared)
     #endif
@@ -253,10 +257,8 @@ void ComputeGradient::bspline_filt_rec_y(MeshData<T>& image,float lambda,float t
             image.mesh[jxnumynum + iynum + y_num - 1] = temp4;
         }
     }
-    btime.stop_timer();
 
 
-    btime.start_timer("backward_loop_y");
     #ifdef HAVE_OPENMP
 	#pragma omp parallel for default(shared)
     #endif
@@ -280,7 +282,6 @@ void ComputeGradient::bspline_filt_rec_y(MeshData<T>& image,float lambda,float t
             }
         }
     }
-    btime.stop_timer();
 }
 
 template<typename T>
@@ -444,6 +445,7 @@ void ComputeGradient::bspline_filt_rec_x(MeshData<T>& image,float lambda,float t
     //  Bevan Cheeseman 2016
     //
     //  Recursive Filter Implimentation for Smoothing BSplines
+
 
     float xi = 1 - 96*lambda + 24*lambda*sqrt(3 + 144*lambda);
     float rho = (24*lambda - 1 - sqrt(xi))/(24*lambda)*sqrt((1/xi)*(48*lambda + 24*lambda*sqrt(3 + 144*lambda)));
