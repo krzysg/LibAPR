@@ -245,6 +245,18 @@ void dupa(MeshData<float> &image, float *bc1_vec, float *bc2_vec, float *bc3_vec
 __global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num, float *bc1_vec, float *bc2_vec, float *bc3_vec, float *bc4_vec, size_t k0, float b1, float b2, float norm_factor) {
     int xi = ((blockIdx.x * blockDim.x) + threadIdx.x);
     int zi = ((blockIdx.z * blockDim.z) + threadIdx.z);
+    __shared__ float bc1_vec2[20];
+    __shared__ float bc2_vec2[20];
+    __shared__ float bc3_vec2[20];
+    __shared__ float bc4_vec2[20];
+    uint idx = blockDim.x * threadIdx.z + threadIdx.x;
+    if (idx < k0) {
+        bc1_vec2[idx] = bc1_vec[idx];
+        bc2_vec2[idx] = bc2_vec[idx];
+        bc3_vec2[idx] = bc3_vec[idx];
+        bc4_vec2[idx] = bc4_vec[idx];
+    }
+    __syncthreads();
 
     //forwards direction
     size_t z = zi;
@@ -257,10 +269,10 @@ __global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num,
     const size_t iynum = x * y_num;
 
     for (size_t k = 0; k < k0; ++k) {
-        temp1 += bc1_vec[k]*image[jxnumynum + iynum + k];
-        temp2 += bc2_vec[k]*image[jxnumynum + iynum + k];
-        temp3 += bc3_vec[k]*image[jxnumynum + iynum + y_num - 1 - k];
-        temp4 += bc4_vec[k]*image[jxnumynum + iynum + y_num - 1 - k];
+        temp1 += bc1_vec2[k]*image[jxnumynum + iynum + k];
+        temp2 += bc2_vec2[k]*image[jxnumynum + iynum + k];
+        temp3 += bc3_vec2[k]*image[jxnumynum + iynum + y_num - 1 - k];
+        temp4 += bc4_vec2[k]*image[jxnumynum + iynum + y_num - 1 - k];
     }
 
     //initialize the sequence
