@@ -260,44 +260,44 @@ namespace {
 
 
     TEST(ComputeGradientTest, 2D_XY_BSPLINE_Y_DIR_CUDA) {
-        {
-            APRTimer timer;
-            timer.verbose_flag = true;
-
-            MeshData<float> m(9, 3, 1, 0);
-            // put value in the middle
-            m(4, 1, 0) = 2;
-
-            // Calculate bspline on CPU
-            MeshData<float> mCpu(m, true);
-            ComputeGradient cg;
-            timer.start_timer("CPU y-dir spline");
-            cg.bspline_filt_rec_y(mCpu, 3.0, 0.0001);
-            timer.stop_timer();
-            mCpu.printMesh(5, 1);
-
-            // Calculate bspline on GPU
-            MeshData<float> mGpu(m, true);
-            timer.start_timer("GPU y-dir spline");
-            cudaFilterBsplineYdirection(mGpu, 3.0, 0.0001);
-            timer.stop_timer();
-            mGpu.printMesh(5, 1);
-
-            // Compare GPU vs CPU
-            bool once = true;
-            int cnt = 0;
-            for (size_t i = 0; i < mCpu.mesh.size(); ++i) {
-                if (std::abs(mCpu.mesh[i] - mGpu.mesh[i]) > 0.0001) {
-                    if (once) {
-                        std::cout << "ERR " << mCpu.mesh[i] << " vs " << mGpu.mesh[i] << std::endl;
-                        once = false;
-                    }
-                    cnt++;
-                }
-            }
-            std::cout << "Number of errors / Number of gradient points: " << cnt << " / " << mCpu.mesh.size() << std::endl;
-            EXPECT_EQ(cnt, 0);
-        }
+//        {
+//            APRTimer timer;
+//            timer.verbose_flag = true;
+//
+//            MeshData<float> m(9, 3, 1, 0);
+//            // put value in the middle
+//            m(4, 1, 0) = 2;
+//
+//            // Calculate bspline on CPU
+//            MeshData<float> mCpu(m, true);
+//            ComputeGradient cg;
+//            timer.start_timer("CPU y-dir spline");
+//            cg.bspline_filt_rec_y(mCpu, 3.0, 0.0001);
+//            timer.stop_timer();
+//            mCpu.printMesh(5, 1);
+//
+//            // Calculate bspline on GPU
+//            MeshData<float> mGpu(m, true);
+//            timer.start_timer("GPU y-dir spline");
+//            cudaFilterBsplineYdirection(mGpu, 3.0, 0.0001);
+//            timer.stop_timer();
+//            mGpu.printMesh(5, 1);
+//
+//            // Compare GPU vs CPU
+//            bool once = true;
+//            int cnt = 0;
+//            for (size_t i = 0; i < mCpu.mesh.size(); ++i) {
+//                if (std::abs(mCpu.mesh[i] - mGpu.mesh[i]) > 0.0001) {
+//                    if (once) {
+//                        std::cout << "ERR " << mCpu.mesh[i] << " vs " << mGpu.mesh[i] << std::endl;
+//                        once = false;
+//                    }
+//                    cnt++;
+//                }
+//            }
+//            std::cout << "Number of errors / Number of gradient points: " << cnt << " / " << mCpu.mesh.size() << std::endl;
+//            EXPECT_EQ(cnt, 0);
+//        }
         {
             std::cout << "\n---------------------------------\n\n";
             APRTimer timer;

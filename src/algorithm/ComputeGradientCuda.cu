@@ -116,8 +116,6 @@ BsplineParams prepareBsplineStuff(MeshData<float> & image, float lambda, float t
     const float b2 = -pow(rho,2.0);
 
     const size_t z_num = image.z_num;
-    const size_t x_num = image.x_num;
-    const size_t y_num = image.y_num;
 
     const size_t k0 = std::max(std::min((size_t)(ceil(std::abs(log(tol)/log(rho)))),z_num),(size_t)2);
     const float norm_factor = pow((1 - 2.0*rho*cos(omg) + pow(rho,2)),2);
@@ -179,133 +177,132 @@ BsplineParams prepareBsplineStuff(MeshData<float> & image, float lambda, float t
     };
 }
 
+//
+//__global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num, float *bc1_vec, float *bc2_vec, float *bc3_vec, float *bc4_vec, size_t k0, float b1, float b2, float norm_factor) {
+//    int xi = ((blockIdx.x * blockDim.x) + threadIdx.x);
+//    int zi = ((blockIdx.z * blockDim.z) + threadIdx.z);
+//    __shared__ float bc1_vec2[20];
+//    __shared__ float bc2_vec2[20];
+//    __shared__ float bc3_vec2[20];
+//    __shared__ float bc4_vec2[20];
+//    uint idx = blockDim.x * threadIdx.z + threadIdx.x;
+////    if (idx < 4) {
+//        if (idx == 0) for (int i = 0; i < k0; ++i) bc1_vec2[i] = bc1_vec[i];
+//        else if (idx == 1) for (int i = 0; i < k0; ++i) bc2_vec2[i] = bc2_vec[i];
+//        else if (idx == 2) for (int i = 0; i < k0; ++i) bc3_vec2[i] = bc3_vec[i];
+//        else if (idx == 3) for (int i = 0; i < k0; ++i) bc4_vec2[i] = bc4_vec[i];
+////        bc1_vec2[idx] = bc1_vec[idx];
+////        bc2_vec2[idx] = bc2_vec[idx];
+////        bc3_vec2[idx] = bc3_vec[idx];
+////        bc4_vec2[idx] = bc4_vec[idx];
+////    }
+//    __syncthreads();
+//
+//    //forwards direction
+//    const size_t zPlaneOffset = zi * x_num * y_num;
+//    const size_t yColOffset = xi * y_num;
+//    size_t yCol = zPlaneOffset + yColOffset;
+//
+//    float temp1 = 0;
+//    float temp2 = 0;
+//    float temp3 = 0;
+//    float temp4 = 0;
+//
+//    for (size_t k = 0; k < k0; ++k) {
+//        temp1 += bc1_vec2[k]*image[yCol + k];
+//        temp2 += bc2_vec2[k]*image[yCol + k];
+//        temp3 += bc3_vec2[k]*image[yCol + y_num - 1 - k];
+//        temp4 += bc4_vec2[k]*image[yCol + y_num - 1 - k];
+//    }
+//
+//    //initialize the sequence
+//    image[yCol + 0] = temp2;
+//    image[yCol + 1] = temp1;
+//
+//    // middle values
+//    for (auto it = (image + yCol + 2); it !=  (image+yCol + y_num); ++it) {
+//        float  temp = temp1*b1 + temp2*b2 + *it;
+//        *it = temp;
+//        temp2 = temp1;
+//        temp1 = temp;
+//    }
+//
+//    // finish sequence
+//    image[yCol + y_num - 2] = temp3;
+//    image[yCol + y_num - 1] = temp4;
+//
+//    // -------------- part 2
+//    temp2 = image[yCol + y_num - 1];
+//    temp1 = image[yCol + y_num - 2];
+//    image[yCol + y_num - 1]*=norm_factor;
+//    image[yCol + y_num - 2]*=norm_factor;
+//
+//    for (auto it = (image + yCol + y_num-3); it !=  (image + yCol - 1); --it) {
+//        float temp = temp1*b1 + temp2*b2 + *it;
+//        *it = temp*norm_factor;
+//        temp2 = temp1;
+//        temp1 = temp;
+//    }
+//
+//}
 
-void dupa(MeshData<float> &image, float *bc1_vec, float *bc2_vec, float *bc3_vec, float *bc4_vec, size_t k0, float b1, float b2, float norm_factor)
-{
-    const size_t z_num = image.z_num;
-    const size_t x_num = image.x_num;
-    const size_t y_num = image.y_num;
-
-    //forwards direction
-    for (size_t z = 0; z < z_num; ++z) {
-        const size_t jxnumynum = z * x_num * y_num;
-
-        for (size_t x = 0; x < x_num; ++x) {
-            float temp1 = 0;
-            float temp2 = 0;
-            float temp3 = 0;
-            float temp4 = 0;
-            const size_t iynum = x * y_num;
-
-            for (size_t k = 0; k < k0; ++k) {
-                temp1 += bc1_vec[k]*image.mesh[jxnumynum + iynum + k];
-                temp2 += bc2_vec[k]*image.mesh[jxnumynum + iynum + k];
-                temp3 += bc3_vec[k]*image.mesh[jxnumynum + iynum + y_num - 1 - k];
-                temp4 += bc4_vec[k]*image.mesh[jxnumynum + iynum + y_num - 1 - k];
-            }
-
-            //initialize the sequence
-            image.mesh[jxnumynum + iynum + 0] = temp2;
-            image.mesh[jxnumynum + iynum + 1] = temp1;
-
-            for (auto it = (image.mesh.begin()+jxnumynum + iynum + 2); it !=  (image.mesh.begin()+jxnumynum + iynum + y_num); ++it) {
-                float  temp = temp1*b1 + temp2*b2 + *it;
-                *it = temp;
-                temp2 = temp1;
-                temp1 = temp;
-            }
-
-            image.mesh[jxnumynum + iynum + y_num - 2] = temp3;
-            image.mesh[jxnumynum + iynum + y_num - 1] = temp4;
-        }
-    }
-
-    for (int64_t j = z_num - 1; j >= 0; --j) {
-        const size_t jxnumynum = j * x_num * y_num;
-
-        for (int64_t i = x_num - 1; i >= 0; --i) {
-            const size_t iynum = i * y_num;
-
-            float temp2 = image.mesh[jxnumynum + iynum + y_num - 1];
-            float temp1 = image.mesh[jxnumynum + iynum + y_num - 2];
-
-            image.mesh[jxnumynum + iynum + y_num - 1]*=norm_factor;
-            image.mesh[jxnumynum + iynum + y_num - 2]*=norm_factor;
-
-            for (auto it = (image.mesh.begin()+jxnumynum + iynum + y_num-3); it !=  (image.mesh.begin()+jxnumynum + iynum-1); --it) {
-                float temp = temp1*b1 + temp2*b2 + *it;
-                *it = temp*norm_factor;
-                temp2 = temp1;
-                temp1 = temp;
-            }
-        }
-    }
-}
 
 __global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num, float *bc1_vec, float *bc2_vec, float *bc3_vec, float *bc4_vec, size_t k0, float b1, float b2, float norm_factor) {
     int xi = ((blockIdx.x * blockDim.x) + threadIdx.x);
     int zi = ((blockIdx.z * blockDim.z) + threadIdx.z);
-    __shared__ float bc1_vec2[20];
-    __shared__ float bc2_vec2[20];
-    __shared__ float bc3_vec2[20];
-    __shared__ float bc4_vec2[20];
-    uint idx = blockDim.x * threadIdx.z + threadIdx.x;
-    if (idx < 4) {
-        if (idx == 0) for (int i = 0; i < k0; ++i) bc1_vec2[i] = bc1_vec[i];
-        else if (idx == 1) for (int i = 0; i < k0; ++i) bc2_vec2[i] = bc2_vec[i];
-        else if (idx == 2) for (int i = 0; i < k0; ++i) bc3_vec2[i] = bc3_vec[i];
-        else if (idx == 3) for (int i = 0; i < k0; ++i) bc4_vec2[i] = bc4_vec[i];
-//        bc1_vec2[idx] = bc1_vec[idx];
-//        bc2_vec2[idx] = bc2_vec[idx];
-//        bc3_vec2[idx] = bc3_vec[idx];
-//        bc4_vec2[idx] = bc4_vec[idx];
-    }
-    __syncthreads();
 
     //forwards direction
     const size_t zPlaneOffset = zi * x_num * y_num;
     const size_t yColOffset = xi * y_num;
-    size_t yCol = zPlaneOffset + yColOffset;
+    const size_t yCol = zPlaneOffset + yColOffset;
+
+    float cache[1024];
 
     float temp1 = 0;
     float temp2 = 0;
+    for (size_t k = 0; k < k0; ++k) {
+        temp1 += bc1_vec[k] * image[yCol + k];
+        temp2 += bc2_vec[k] * image[yCol + k];
+    }
     float temp3 = 0;
     float temp4 = 0;
-
     for (size_t k = 0; k < k0; ++k) {
-        temp1 += bc1_vec2[k]*image[yCol + k];
-        temp2 += bc2_vec2[k]*image[yCol + k];
-        temp3 += bc3_vec2[k]*image[yCol + y_num - 1 - k];
-        temp4 += bc4_vec2[k]*image[yCol + y_num - 1 - k];
+        temp3 += bc3_vec[k]*image[yCol + y_num - 1 - k];
+        temp4 += bc4_vec[k]*image[yCol + y_num - 1 - k];
     }
 
     //initialize the sequence
-    image[yCol + 0] = temp2;
-    image[yCol + 1] = temp1;
+    cache[0] = temp2;
+    cache[1] = temp1;
 
     // middle values
-    for (auto it = (image + yCol + 2); it !=  (image+yCol + y_num); ++it) {
+    int i = 2;
+    for (auto it = (image + yCol + 2); it !=  (image+yCol + y_num - 2); ++it) {
         float  temp = temp1*b1 + temp2*b2 + *it;
-        *it = temp;
+//        *it = temp;
+        cache[i] = temp;
         temp2 = temp1;
         temp1 = temp;
+        ++i;
     }
 
-    // finish sequence
-    image[yCol + y_num - 2] = temp3;
-    image[yCol + y_num - 1] = temp4;
+//    // finish sequence
+//    image[yCol + y_num - 2] = temp3;
+//    image[yCol + y_num - 1] = temp4;
 
     // -------------- part 2
-    temp2 = image[yCol + y_num - 1];
-    temp1 = image[yCol + y_num - 2];
-    image[yCol + y_num - 1]*=norm_factor;
-    image[yCol + y_num - 2]*=norm_factor;
+    temp2 = temp4;
+    temp1 = temp3;
+    image[yCol + y_num - 1] = temp2 * norm_factor;
+    image[yCol + y_num - 2] = temp1 * norm_factor;
 
-    for (auto it = (image + yCol + y_num-3); it !=  (image + yCol - 1); --it) {
-        float temp = temp1*b1 + temp2*b2 + *it;
+    i = y_num - 3;
+    for (auto it = (image + yCol + y_num - 3); it !=  (image + yCol - 1); --it) {
+        float temp = temp1*b1 + temp2*b2 + cache[i];
         *it = temp*norm_factor;
         temp2 = temp1;
         temp1 = temp;
+        i--;
     }
 
 }
@@ -328,8 +325,10 @@ void cudaFilterBsplineYdirection(MeshData<float> &input, float lambda, float tol
     thrust::device_vector<float> d_bc4_vec(p.bc4_vec);
     timer.stop_timer();
 
+    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
+
     timer.start_timer("cuda: calculations on device");
-    dim3 threadsPerBlock(16, 1, 16);
+    dim3 threadsPerBlock(32, 1, 1);
     dim3 numBlocks((input.x_num + threadsPerBlock.x - 1)/threadsPerBlock.x,
                    1,
                    (input.z_num + threadsPerBlock.z - 1)/threadsPerBlock.z);
