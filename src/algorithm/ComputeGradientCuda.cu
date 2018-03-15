@@ -186,16 +186,12 @@ BsplineParams prepareBsplineStuff(MeshData<float> & image, float lambda, float t
 //    __shared__ float bc3_vec2[20];
 //    __shared__ float bc4_vec2[20];
 //    uint idx = blockDim.x * threadIdx.z + threadIdx.x;
-////    if (idx < 4) {
+//    if (idx < 4) {
 //        if (idx == 0) for (int i = 0; i < k0; ++i) bc1_vec2[i] = bc1_vec[i];
 //        else if (idx == 1) for (int i = 0; i < k0; ++i) bc2_vec2[i] = bc2_vec[i];
 //        else if (idx == 2) for (int i = 0; i < k0; ++i) bc3_vec2[i] = bc3_vec[i];
 //        else if (idx == 3) for (int i = 0; i < k0; ++i) bc4_vec2[i] = bc4_vec[i];
-////        bc1_vec2[idx] = bc1_vec[idx];
-////        bc2_vec2[idx] = bc2_vec[idx];
-////        bc3_vec2[idx] = bc3_vec[idx];
-////        bc4_vec2[idx] = bc4_vec[idx];
-////    }
+//    }
 //    __syncthreads();
 //
 //    //forwards direction
@@ -251,6 +247,19 @@ __global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num,
     int xi = ((blockIdx.x * blockDim.x) + threadIdx.x);
     int zi = ((blockIdx.z * blockDim.z) + threadIdx.z);
 
+    __shared__ float bc1_vec2[32];
+    __shared__ float bc2_vec2[32];
+    __shared__ float bc3_vec2[32];
+    __shared__ float bc4_vec2[32];
+
+    uint idx = blockDim.x * threadIdx.z + threadIdx.x;
+    if (idx == 0) for (int i = 0; i < k0; ++i) bc1_vec2[i] = bc1_vec[i];
+    else if (idx == 1) for (int i = 0; i < k0; ++i) bc2_vec2[i] = bc2_vec[i];
+    else if (idx == 2) for (int i = 0; i < k0; ++i) bc3_vec2[i] = bc3_vec[i];
+    else if (idx == 3) for (int i = 0; i < k0; ++i) bc4_vec2[i] = bc4_vec[i];
+
+    __syncthreads();
+
     //forwards direction
     const size_t zPlaneOffset = zi * x_num * y_num;
     const size_t yColOffset = xi * y_num;
@@ -261,14 +270,14 @@ __global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num,
     float temp1 = 0;
     float temp2 = 0;
     for (size_t k = 0; k < k0; ++k) {
-        temp1 += bc1_vec[k] * image[yCol + k];
-        temp2 += bc2_vec[k] * image[yCol + k];
+        temp1 += bc1_vec2[k] * image[yCol + k];
+        temp2 += bc2_vec2[k] * image[yCol + k];
     }
     float temp3 = 0;
     float temp4 = 0;
     for (size_t k = 0; k < k0; ++k) {
-        temp3 += bc3_vec[k]*image[yCol + y_num - 1 - k];
-        temp4 += bc4_vec[k]*image[yCol + y_num - 1 - k];
+        temp3 += bc3_vec2[k]*image[yCol + y_num - 1 - k];
+        temp4 += bc4_vec2[k]*image[yCol + y_num - 1 - k];
     }
 
     //initialize the sequence
@@ -276,43 +285,37 @@ __global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num,
     cache[1] = temp1;
 
     // middle values
-    int i = 2;
-    for (auto it = (image + yCol + 2); it !=  (image+yCol + y_num - 2); ++it) {
+    float *it = image + yCol + 2;
+    for (int i = 2; i < y_num; ++i, ++it) {
         float  temp = temp1*b1 + temp2*b2 + *it;
-//        *it = temp;
-        cache[i] = temp;
         temp2 = temp1;
+        cache[i] = temp;
         temp1 = temp;
-        ++i;
     }
 
-//    // finish sequence
-//    image[yCol + y_num - 2] = temp3;
-//    image[yCol + y_num - 1] = temp4;
-
     // -------------- part 2
+
     temp2 = temp4;
     temp1 = temp3;
     image[yCol + y_num - 1] = temp2 * norm_factor;
     image[yCol + y_num - 2] = temp1 * norm_factor;
 
-    i = y_num - 3;
-    for (auto it = (image + yCol + y_num - 3); it !=  (image + yCol - 1); --it) {
+    it = image + yCol + y_num - 3;
+    for (int i = y_num - 3; i >= 0; --i, --it) {
         float temp = temp1*b1 + temp2*b2 + cache[i];
-        *it = temp*norm_factor;
         temp2 = temp1;
+        *it = temp*norm_factor;
         temp1 = temp;
-        i--;
     }
-
 }
 
 void cudaFilterBsplineYdirection(MeshData<float> &input, float lambda, float tolerance) {
     APRTimer timer;
     timer.verbose_flag=true;
 
+    timer.start_timer("bspline...");
     BsplineParams p = prepareBsplineStuff(input, lambda, tolerance);
-
+    timer.stop_timer();
     timer.start_timer("cuda: memory alloc + data transfer to device");
     size_t inputSize = input.mesh.size() * sizeof(float);
     float *cudaInput;
@@ -325,7 +328,7 @@ void cudaFilterBsplineYdirection(MeshData<float> &input, float lambda, float tol
     thrust::device_vector<float> d_bc4_vec(p.bc4_vec);
     timer.stop_timer();
 
-    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
+    cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 
     timer.start_timer("cuda: calculations on device");
     dim3 threadsPerBlock(32, 1, 1);
