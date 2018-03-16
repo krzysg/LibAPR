@@ -116,8 +116,9 @@ BsplineParams prepareBsplineStuff(MeshData<float> & image, float lambda, float t
     const float b2 = -pow(rho,2.0);
 
     const size_t z_num = image.z_num;
+    const size_t xxx = ceil(std::abs(log(tol)/log(rho)));
+    const size_t k0 = std::max( std::min(xxx, z_num), (size_t)2);
 
-    const size_t k0 = std::max(std::min((size_t)(ceil(std::abs(log(tol)/log(rho)))),z_num),(size_t)2);
     const float norm_factor = pow((1 - 2.0*rho*cos(omg) + pow(rho,2)),2);
 
     //////////////////////////////////////////////////////////////
@@ -177,87 +178,146 @@ BsplineParams prepareBsplineStuff(MeshData<float> & image, float lambda, float t
     };
 }
 
-//
-//__global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num, float *bc1_vec, float *bc2_vec, float *bc3_vec, float *bc4_vec, size_t k0, float b1, float b2, float norm_factor) {
-//    int xi = ((blockIdx.x * blockDim.x) + threadIdx.x);
-//    int zi = ((blockIdx.z * blockDim.z) + threadIdx.z);
-//    __shared__ float bc1_vec2[20];
-//    __shared__ float bc2_vec2[20];
-//    __shared__ float bc3_vec2[20];
-//    __shared__ float bc4_vec2[20];
-//    uint idx = blockDim.x * threadIdx.z + threadIdx.x;
-//    if (idx < 4) {
-//        if (idx == 0) for (int i = 0; i < k0; ++i) bc1_vec2[i] = bc1_vec[i];
-//        else if (idx == 1) for (int i = 0; i < k0; ++i) bc2_vec2[i] = bc2_vec[i];
-//        else if (idx == 2) for (int i = 0; i < k0; ++i) bc3_vec2[i] = bc3_vec[i];
-//        else if (idx == 3) for (int i = 0; i < k0; ++i) bc4_vec2[i] = bc4_vec[i];
-//    }
-//    __syncthreads();
-//
-//    //forwards direction
-//    const size_t zPlaneOffset = zi * x_num * y_num;
-//    const size_t yColOffset = xi * y_num;
-//    size_t yCol = zPlaneOffset + yColOffset;
-//
-//    float temp1 = 0;
-//    float temp2 = 0;
-//    float temp3 = 0;
-//    float temp4 = 0;
-//
-//    for (size_t k = 0; k < k0; ++k) {
-//        temp1 += bc1_vec2[k]*image[yCol + k];
-//        temp2 += bc2_vec2[k]*image[yCol + k];
-//        temp3 += bc3_vec2[k]*image[yCol + y_num - 1 - k];
-//        temp4 += bc4_vec2[k]*image[yCol + y_num - 1 - k];
-//    }
-//
-//    //initialize the sequence
-//    image[yCol + 0] = temp2;
-//    image[yCol + 1] = temp1;
-//
-//    // middle values
-//    for (auto it = (image + yCol + 2); it !=  (image+yCol + y_num); ++it) {
-//        float  temp = temp1*b1 + temp2*b2 + *it;
-//        *it = temp;
-//        temp2 = temp1;
-//        temp1 = temp;
-//    }
-//
-//    // finish sequence
-//    image[yCol + y_num - 2] = temp3;
-//    image[yCol + y_num - 1] = temp4;
-//
-//    // -------------- part 2
-//    temp2 = image[yCol + y_num - 1];
-//    temp1 = image[yCol + y_num - 2];
-//    image[yCol + y_num - 1]*=norm_factor;
-//    image[yCol + y_num - 2]*=norm_factor;
-//
-//    for (auto it = (image + yCol + y_num-3); it !=  (image + yCol - 1); --it) {
-//        float temp = temp1*b1 + temp2*b2 + *it;
-//        *it = temp*norm_factor;
-//        temp2 = temp1;
-//        temp1 = temp;
-//    }
-//
-//}
 
-
-__global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num, float *bc1_vec, float *bc2_vec, float *bc3_vec, float *bc4_vec, size_t k0, float b1, float b2, float norm_factor) {
+__global__ void bspline1(float *image, size_t x_num, size_t y_num, size_t z_num, float *bc1_vec, float *bc2_vec, float *bc3_vec, float *bc4_vec, size_t k0, float b1, float b2, float norm_factor) {
     int xi = ((blockIdx.x * blockDim.x) + threadIdx.x);
     int zi = ((blockIdx.z * blockDim.z) + threadIdx.z);
 
-    __shared__ float bc1_vec2[32];
-    __shared__ float bc2_vec2[32];
-    __shared__ float bc3_vec2[32];
-    __shared__ float bc4_vec2[32];
+    //forwards direction
+    const size_t zPlaneOffset = zi * x_num * y_num;
+    const size_t yColOffset = xi * y_num;
+    size_t yCol = zPlaneOffset + yColOffset;
 
+    float temp1 = 0;
+    float temp2 = 0;
+    float temp3 = 0;
+    float temp4 = 0;
+
+    for (size_t k = 0; k < k0; ++k) {
+        temp1 += bc1_vec[k]*image[yCol + k];
+        temp2 += bc2_vec[k]*image[yCol + k];
+        temp3 += bc3_vec[k]*image[yCol + y_num - 1 - k];
+        temp4 += bc4_vec[k]*image[yCol + y_num - 1 - k];
+    }
+
+    //initialize the sequence
+    image[yCol + 0] = temp2;
+    image[yCol + 1] = temp1;
+
+    // middle values
+    for (auto it = (image + yCol + 2); it !=  (image+yCol + y_num); ++it) {
+        float  temp = temp1*b1 + temp2*b2 + *it;
+        *it = temp;
+        temp2 = temp1;
+        temp1 = temp;
+    }
+
+    // finish sequence
+    image[yCol + y_num - 2] = temp3;
+    image[yCol + y_num - 1] = temp4;
+
+    // -------------- part 2
+    temp2 = image[yCol + y_num - 1];
+    temp1 = image[yCol + y_num - 2];
+    image[yCol + y_num - 1]*=norm_factor;
+    image[yCol + y_num - 2]*=norm_factor;
+
+    for (auto it = (image + yCol + y_num-3); it !=  (image + yCol - 1); --it) {
+        float temp = temp1*b1 + temp2*b2 + *it;
+        *it = temp*norm_factor;
+        temp2 = temp1;
+        temp1 = temp;
+    }
+}
+
+__global__ void bsplineY2(float *image, size_t x_num, size_t y_num, size_t z_num, float *bc1_vec, float *bc2_vec, float *bc3_vec, float *bc4_vec, size_t k0, float b1, float b2, float norm_factor) {
+    int xi = ((blockIdx.x * blockDim.x) + threadIdx.x);
+    int zi = ((blockIdx.z * blockDim.z) + threadIdx.z);
+    __shared__ float bc1_vec2[20];
+    __shared__ float bc2_vec2[20];
+    __shared__ float bc3_vec2[20];
+    __shared__ float bc4_vec2[20];
     uint idx = blockDim.x * threadIdx.z + threadIdx.x;
-    if (idx == 0) for (int i = 0; i < k0; ++i) bc1_vec2[i] = bc1_vec[i];
-    else if (idx == 1) for (int i = 0; i < k0; ++i) bc2_vec2[i] = bc2_vec[i];
-    else if (idx == 2) for (int i = 0; i < k0; ++i) bc3_vec2[i] = bc3_vec[i];
-    else if (idx == 3) for (int i = 0; i < k0; ++i) bc4_vec2[i] = bc4_vec[i];
+    if (idx < 4) {
+        if (idx == 0) for (int i = 0; i < k0; ++i) bc1_vec2[i] = bc1_vec[i];
+        else if (idx == 1) for (int i = 0; i < k0; ++i) bc2_vec2[i] = bc2_vec[i];
+        else if (idx == 2) for (int i = 0; i < k0; ++i) bc3_vec2[i] = bc3_vec[i];
+        else if (idx == 3) for (int i = 0; i < k0; ++i) bc4_vec2[i] = bc4_vec[i];
+    }
+    __syncthreads();
 
+    //forwards direction
+    const size_t zPlaneOffset = zi * x_num * y_num;
+    const size_t yColOffset = xi * y_num;
+    size_t yCol = zPlaneOffset + yColOffset;
+
+    float temp1 = 0;
+    float temp2 = 0;
+    float temp3 = 0;
+    float temp4 = 0;
+
+    for (size_t k = 0; k < k0; ++k) {
+        temp1 += bc1_vec2[k]*image[yCol + k];
+        temp2 += bc2_vec2[k]*image[yCol + k];
+        temp3 += bc3_vec2[k]*image[yCol + y_num - 1 - k];
+        temp4 += bc4_vec2[k]*image[yCol + y_num - 1 - k];
+    }
+
+    //initialize the sequence
+    image[yCol + 0] = temp2;
+    image[yCol + 1] = temp1;
+
+    // middle values
+    for (auto it = (image + yCol + 2); it !=  (image+yCol + y_num); ++it) {
+        float  temp = temp1*b1 + temp2*b2 + *it;
+        *it = temp;
+        temp2 = temp1;
+        temp1 = temp;
+    }
+
+    // finish sequence
+    image[yCol + y_num - 2] = temp3;
+    image[yCol + y_num - 1] = temp4;
+
+    // -------------- part 2
+    temp2 = image[yCol + y_num - 1];
+    temp1 = image[yCol + y_num - 2];
+    image[yCol + y_num - 1]*=norm_factor;
+    image[yCol + y_num - 2]*=norm_factor;
+
+    for (auto it = (image + yCol + y_num-3); it !=  (image + yCol - 1); --it) {
+        float temp = temp1*b1 + temp2*b2 + *it;
+        *it = temp*norm_factor;
+        temp2 = temp1;
+        temp1 = temp;
+    }
+
+}
+
+
+__global__ void bsplineY3(float *image, size_t x_num, size_t y_num, size_t z_num, float *bc1_vec, float *bc2_vec, float *bc3_vec, float *bc4_vec, size_t k0, float b1, float b2, float norm_factor) {
+    int xi = ((blockIdx.x * blockDim.x) + threadIdx.x);
+    int zi = ((blockIdx.z * blockDim.z) + threadIdx.z);
+
+    const int k0Size = 32;
+    const int cacheSize = 128;
+
+    // fetch bc* vectors to shared memory and synchronize
+    __shared__ float bc1_vec2[k0Size];
+    __shared__ float bc2_vec2[k0Size];
+    __shared__ float bc3_vec2[k0Size];
+    __shared__ float bc4_vec2[k0Size];
+    uint idx = blockDim.x * threadIdx.z + threadIdx.x;
+    if (idx < k0) {
+        bc1_vec2[idx] = bc1_vec[idx];
+        bc2_vec2[idx] = bc2_vec[idx];
+        bc3_vec2[idx] = bc3_vec[idx];
+        bc4_vec2[idx] = bc4_vec[idx];
+    }
+//    if (idx == 0) for (int i = 0; i < k0; ++i) bc1_vec2[i] = bc1_vec[i];
+//    else if (idx == 1) for (int i = 0; i < k0; ++i) bc2_vec2[i] = bc2_vec[i];
+//    else if (idx == 2) for (int i = 0; i < k0; ++i) bc3_vec2[i] = bc3_vec[i];
+//    else if (idx == 3) for (int i = 0; i < k0; ++i) bc4_vec2[i] = bc4_vec[i];
     __syncthreads();
 
     //forwards direction
@@ -265,46 +325,128 @@ __global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num,
     const size_t yColOffset = xi * y_num;
     const size_t yCol = zPlaneOffset + yColOffset;
 
-    float cache[1024];
+    float cache[cacheSize];
 
     float temp1 = 0;
     float temp2 = 0;
-    for (size_t k = 0; k < k0; ++k) {
-        temp1 += bc1_vec2[k] * image[yCol + k];
-        temp2 += bc2_vec2[k] * image[yCol + k];
-    }
     float temp3 = 0;
     float temp4 = 0;
-    for (size_t k = 0; k < k0; ++k) {
-        temp3 += bc3_vec2[k]*image[yCol + y_num - 1 - k];
-        temp4 += bc4_vec2[k]*image[yCol + y_num - 1 - k];
+
+    for (int i = 0; i < y_num; ++i) {
+        cache[i] = image[yCol + i];
+
+        if (i < k0) {
+            temp1 += bc1_vec2[i] * cache[i];
+            temp2 += bc2_vec2[i] * cache[i];
+        }
+        if (i >= y_num - k0) {
+            temp3 += bc3_vec2[y_num - i - 1]*cache[i];
+            temp4 += bc4_vec2[y_num - i - 1]*cache[i];
+        }
     }
 
     //initialize the sequence
     cache[0] = temp2;
     cache[1] = temp1;
-
-    // middle values
-    float *it = image + yCol + 2;
-    for (int i = 2; i < y_num; ++i, ++it) {
-        float  temp = temp1*b1 + temp2*b2 + *it;
-        temp2 = temp1;
+    for (int i = 2; i < y_num; ++i) {
+        float  temp = temp1*b1 + temp2*b2 + cache[i];
         cache[i] = temp;
+        temp2 = temp1;
         temp1 = temp;
     }
 
     // -------------- part 2
-
     temp2 = temp4;
     temp1 = temp3;
     image[yCol + y_num - 1] = temp2 * norm_factor;
     image[yCol + y_num - 2] = temp1 * norm_factor;
 
-    it = image + yCol + y_num - 3;
+    float *it = image + yCol + y_num - 3;
     for (int i = y_num - 3; i >= 0; --i, --it) {
         float temp = temp1*b1 + temp2*b2 + cache[i];
-        temp2 = temp1;
         *it = temp*norm_factor;
+        temp2 = temp1;
+        temp1 = temp;
+    }
+}
+
+__global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num, float *bc1_vec, float *bc2_vec, float *bc3_vec, float *bc4_vec, size_t k0, float b1, float b2, float norm_factor) {
+    int xi = ((blockIdx.x * blockDim.x) + threadIdx.x) * 4;
+    int zi = ((blockIdx.z * blockDim.z) + threadIdx.z);
+
+    int xc = xi + threadIdx.y;
+    if (xc >= x_num) return;
+
+    const int k0Size = 32;
+    const int cacheSize = 128 * 4;
+    const size_t zPlaneOffset = zi * x_num * y_num;
+    const size_t yColOffset = xi * y_num;
+    const size_t yCol = zPlaneOffset + yColOffset;
+
+    float cache[cacheSize];
+    __shared__ float bc1_vec2[k0Size];
+    __shared__ float bc2_vec2[k0Size];
+    __shared__ float bc3_vec2[k0Size];
+    __shared__ float bc4_vec2[k0Size];
+
+    int off = threadIdx.y;
+    // fetch bc* vectors to shared memory and synchronize
+    for (int xn = 0; xn < blockDim.y; ++xn) {
+        size_t yoff = xn * y_num;
+        for (int i = off; i < y_num; i += blockDim.y) {
+            cache[i + yoff] = image[yCol + i + yoff];
+            if (xn == 0 && i < k0) {
+                bc1_vec2[i] = bc1_vec[i];
+                bc2_vec2[i] = bc2_vec[i];
+                bc3_vec2[i] = bc3_vec[i];
+                bc4_vec2[i] = bc4_vec[i];
+            }
+        }
+    }
+    size_t yoff = threadIdx.y * y_num;
+
+    __syncthreads();
+
+    //forwards direction
+    float temp1 = 0;
+    float temp2 = 0;
+    float temp3 = 0;
+    float temp4 = 0;
+
+    for (int i = 0; i < y_num; ++i) {
+        cache[i + yoff] = image[yCol + i + yoff];
+
+        if (i < k0) {
+            temp1 += bc1_vec2[i] * cache[i + yoff];
+            temp2 += bc2_vec2[i] * cache[i + yoff];
+        }
+        if (i >= y_num - k0) {
+            temp3 += bc3_vec2[y_num - i - 1]*cache[i + yoff];
+            temp4 += bc4_vec2[y_num - i - 1]*cache[i + yoff];
+        }
+    }
+
+    //initialize the sequence
+    cache[0 + yoff] = temp2;
+    cache[1 + yoff] = temp1;
+    for (int i = 2; i < y_num; ++i) {
+        float  temp = temp1*b1 + temp2*b2 + cache[i + yoff];
+        cache[i + yoff] = temp;
+        temp2 = temp1;
+        temp1 = temp;
+    }
+
+    // -------------- part 2
+    temp2 = temp4;
+    temp1 = temp3;
+    image[yCol + y_num - 1  + yoff] = temp2 * norm_factor;
+    image[yCol + y_num - 2 + yoff] = temp1 * norm_factor;
+
+    float *it = image + yCol + y_num - 3  + yoff;
+    for (int i = y_num - 3; i >= 0; --i, --it) {
+        float temp = temp1*b1 + temp2*b2 + cache[i + yoff];
+        *it = temp*norm_factor;
+        temp2 = temp1;
         temp1 = temp;
     }
 }
@@ -331,7 +473,7 @@ void cudaFilterBsplineYdirection(MeshData<float> &input, float lambda, float tol
     cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 
     timer.start_timer("cuda: calculations on device");
-    dim3 threadsPerBlock(32, 1, 1);
+    dim3 threadsPerBlock(4, 4, 1);
     dim3 numBlocks((input.x_num + threadsPerBlock.x - 1)/threadsPerBlock.x,
                    1,
                    (input.z_num + threadsPerBlock.z - 1)/threadsPerBlock.z);

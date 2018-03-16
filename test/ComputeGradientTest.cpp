@@ -163,7 +163,7 @@ namespace {
             MeshData<float> mCpu(m, true);
             ComputeGradient cg;
             cg.bspline_filt_rec_y(mCpu, 3.0, 0.0001);
-//            ASSERT_TRUE(compare(mCpu, expect, 0.01));
+            ASSERT_TRUE(compare(mCpu, expect, 0.01));
         }
     }
 
@@ -304,7 +304,7 @@ namespace {
             timer.verbose_flag = true;
 
             // Generate random mesh
-            MeshData<float> m(256, 512, 512, 0);
+            MeshData<float> m(128, 512, 512, 0);
             std::cout << m << std::endl;
             std::random_device rd;
             std::mt19937 mt(rd());
