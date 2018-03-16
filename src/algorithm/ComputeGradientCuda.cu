@@ -371,14 +371,16 @@ __global__ void bsplineY3(float *image, size_t x_num, size_t y_num, size_t z_num
 }
 
 __global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num, float *bc1_vec, float *bc2_vec, float *bc3_vec, float *bc4_vec, size_t k0, float b1, float b2, float norm_factor) {
-    int xi = ((blockIdx.x * blockDim.x) + threadIdx.x) * 4;
+    const int numOfWorkers = 16;
+    int xi = ((blockIdx.x * blockDim.x) + threadIdx.x) * numOfWorkers;
     int zi = ((blockIdx.z * blockDim.z) + threadIdx.z);
 
-    int xc = xi + threadIdx.y;
+    const int currWorkerId = threadIdx.y;
+    int xc = xi + currWorkerId;
     if (xc >= x_num) return;
 
     const int k0Size = 32;
-    const int cacheSize = 128 * 4;
+    const int cacheSize = 128 * numOfWorkers;
     const size_t zPlaneOffset = zi * x_num * y_num;
     const size_t yColOffset = xi * y_num;
     const size_t yCol = zPlaneOffset + yColOffset;
@@ -389,11 +391,10 @@ __global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num,
     __shared__ float bc3_vec2[k0Size];
     __shared__ float bc4_vec2[k0Size];
 
-    int off = threadIdx.y;
     // fetch bc* vectors to shared memory and synchronize
-    for (int xn = 0; xn < blockDim.y; ++xn) {
+    for (int xn = 0; xn < numOfWorkers; ++xn) {
         size_t yoff = xn * y_num;
-        for (int i = off; i < y_num; i += blockDim.y) {
+        for (int i = currWorkerId; i < y_num; i += numOfWorkers) {
             cache[i + yoff] = image[yCol + i + yoff];
             if (xn == 0 && i < k0) {
                 bc1_vec2[i] = bc1_vec[i];
@@ -403,7 +404,7 @@ __global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num,
             }
         }
     }
-    size_t yoff = threadIdx.y * y_num;
+    size_t yoff = currWorkerId * y_num;
 
     __syncthreads();
 
@@ -412,9 +413,15 @@ __global__ void bsplineY(float *image, size_t x_num, size_t y_num, size_t z_num,
     float temp2 = 0;
     float temp3 = 0;
     float temp4 = 0;
-
+//
+//    for (size_t k = 0; k < k0; ++k) {
+//        temp1 += bc1_vec2[k]*cache[yoff + k];
+//        temp2 += bc2_vec2[k]*cache[yoff + k];
+//        temp3 += bc3_vec2[k]*cache[yoff + y_num - 1 - k];
+//        temp4 += bc4_vec2[k]*cache[yoff + y_num - 1 - k];
+//    }
     for (int i = 0; i < y_num; ++i) {
-        cache[i + yoff] = image[yCol + i + yoff];
+//        cache[i] = image[yCol + i];
 
         if (i < k0) {
             temp1 += bc1_vec2[i] * cache[i + yoff];
@@ -473,10 +480,11 @@ void cudaFilterBsplineYdirection(MeshData<float> &input, float lambda, float tol
     cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 
     timer.start_timer("cuda: calculations on device");
-    dim3 threadsPerBlock(4, 4, 1);
-    dim3 numBlocks((input.x_num + threadsPerBlock.x - 1)/threadsPerBlock.x,
+    int numOfWorkers = 16;
+    dim3 threadsPerBlock(1, numOfWorkers, 1);
+    dim3 numBlocks(input.x_num/numOfWorkers/threadsPerBlock.x,
                    1,
-                   (input.z_num + threadsPerBlock.z - 1)/threadsPerBlock.z);
+                   input.z_num/threadsPerBlock.z);
     std::cout << "Number of blocks  (x/y/z):  " << numBlocks.x << "/" << numBlocks.y << "/" << numBlocks.z << std::endl;
     std::cout << "Number of threads (x/y/z): " << threadsPerBlock.x << "/" << threadsPerBlock.y << "/" << threadsPerBlock.z << std::endl;
 
