@@ -349,15 +349,13 @@ namespace {
 
             // Generate random mesh
             using ImgType = float ;
-//            MeshData<ImgType> m(10,4,10);
-            MeshData<ImgType> m(128, 128, 127);
+            MeshData<ImgType> m(129, 129, 13);
             std::cout << m << std::endl;
             std::random_device rd;
             std::mt19937 mt(rd());
             std::uniform_real_distribution<double> dist(0.0, 1.0);
             for (size_t i = 0; i < m.mesh.size(); ++i) {
                 m.mesh[i] = dist(mt);
-//                m.mesh[i] = i;
             }
 
             const float lambda = 3;
@@ -367,16 +365,14 @@ namespace {
             MeshData<ImgType> mCpu(m, true);
             ComputeGradient cg;
             timer.start_timer("CPU y-dir spline ======================================================================================== ");
-            cg.bspline_filt_rec_y2(mCpu, lambda, tolerance);
+            cg.bspline_filt_rec_y(mCpu, lambda, tolerance);
             timer.stop_timer();
-//            mCpu.printMesh(6, 1);
 
             // Calculate bspline on GPU
             MeshData<ImgType> mGpu(m, true);
             timer.start_timer("GPU y-dir spline");
             cudaFilterBsplineYdirection(mGpu, lambda, tolerance);
             timer.stop_timer();
-//            mGpu.printMesh(6, 1);
 
             // Compare GPU vs CPU
             int cnt = 0;
@@ -388,8 +384,7 @@ namespace {
                     cnt++;
                 }
             }
-            std::cout << "Number of errors / Number of gradient points: " << cnt << " / " << mCpu.mesh.size()
-                      << std::endl;
+            std::cout << "Number of errors / Number of gradient points: " << cnt << " / " << mCpu.mesh.size() << std::endl;
             EXPECT_EQ(cnt, 0);
         }
     }
