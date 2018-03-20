@@ -348,10 +348,9 @@ namespace {
             timer.verbose_flag = true;
 
             // Generate random mesh
-//            MeshData<float> m(5, 7, 1);
-//            MeshData<float> m(31,33,8);
-//            MeshData<float> m(32, 32, 1);
-            MeshData<float> m(511,255,514);
+            using ImgType = float ;
+//            MeshData<ImgType> m(10,4,10);
+            MeshData<ImgType> m(128, 128, 127);
             std::cout << m << std::endl;
             std::random_device rd;
             std::mt19937 mt(rd());
@@ -360,13 +359,12 @@ namespace {
                 m.mesh[i] = dist(mt);
 //                m.mesh[i] = i;
             }
-//            m.printMesh(3, 1);
 
             const float lambda = 3;
             const float tolerance = 0.001;
 
             // Calculate bspline on CPU
-            MeshData<float> mCpu(m, true);
+            MeshData<ImgType> mCpu(m, true);
             ComputeGradient cg;
             timer.start_timer("CPU y-dir spline ======================================================================================== ");
             cg.bspline_filt_rec_y2(mCpu, lambda, tolerance);
@@ -374,20 +372,18 @@ namespace {
 //            mCpu.printMesh(6, 1);
 
             // Calculate bspline on GPU
-            MeshData<float> mGpu(m, true);
+            MeshData<ImgType> mGpu(m, true);
             timer.start_timer("GPU y-dir spline");
             cudaFilterBsplineYdirection(mGpu, lambda, tolerance);
             timer.stop_timer();
 //            mGpu.printMesh(6, 1);
 
             // Compare GPU vs CPU
-            bool once = true;
             int cnt = 0;
             for (size_t i = 0; i < mCpu.mesh.size(); ++i) {
-                if (std::abs(mCpu.mesh[i] - mGpu.mesh[i]) > 0.1) {
+                if (std::abs(mCpu.mesh[i] - mGpu.mesh[i]) > 0.0001) {
                     if (cnt < 3) {
                         std::cout << "ERR " << mCpu.mesh[i] << " vs " << mGpu.mesh[i] << " IDX:" << mGpu.getStrIndex(i) << std::endl;
-                        once = false;
                     }
                     cnt++;
                 }

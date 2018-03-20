@@ -177,7 +177,7 @@ void ComputeGradient::bspline_filt_rec_y2(MeshData<T>& image,float lambda,float 
     const size_t y_num = image.y_num;
 
     const size_t k0 = std::max(std::min((size_t)(ceil(std::abs(log(tol)/log(rho)))),z_num),(size_t)2);
-//    const float norm_factor = pow((1 - 2.0*rho*cos(omg) + pow(rho,2)),2);
+    const float norm_factor = pow((1 - 2.0*rho*cos(omg) + pow(rho,2)),2);
 
     //////////////////////////////////////////////////////////////
     //
@@ -244,48 +244,63 @@ void ComputeGradient::bspline_filt_rec_y2(MeshData<T>& image,float lambda,float 
                 temp2 += bc2_vec[k]*image.mesh[jxnumynum + iynum + k];
                 temp3 += bc3_vec[k]*image.mesh[jxnumynum + iynum + y_num - 1 - k];
                 temp4 += bc4_vec[k]*image.mesh[jxnumynum + iynum + y_num - 1 - k];
+
             }
-
+//            if (temp2 < 0 || temp1 < 0) {
+//                for (size_t k = 0; k < k0; ++k) {
+//                    std::cout << bc2_vec[k] << "*" << image.mesh[jxnumynum + iynum + k] << "    ";
+//                }
+//                std::cout << std::endl;
+//                std::cout << temp2 << std::endl;
+//                for (size_t k = 0; k < k0; ++k) {
+//                    std::cout << bc1_vec[k] << "*" << image.mesh[jxnumynum + iynum + k] << "    ";
+//                }
+//                std::cout << std::endl;
+//                std::cout << temp1 << std::endl;
+//            }
 //            //initialize the sequence
-            image.mesh[jxnumynum + iynum + 0] = temp2;
-            image.mesh[jxnumynum + iynum + 1] = temp1;
-
+            image.mesh[jxnumynum + iynum + 0] = temp2;// < 0 ? 0  : temp2;
+            image.mesh[jxnumynum + iynum + 1] = temp1;// < 0 ? 0 : temp1;
+//            printf("%d -> %f\n", image.mesh[jxnumynum + iynum + 0], temp2);
+//            printf("%d -> %f\n", image.mesh[jxnumynum + iynum + 1], temp1);
             for (auto it = (image.mesh.begin()+jxnumynum + iynum + 2); it !=  (image.mesh.begin()+jxnumynum + iynum + y_num -2); ++it) {
                 float  temp = temp1*b1 + temp2*b2 + *it;
+//                T t = *it;
+//                printf("temp=%f b1=%f b2=%f temp1=%f temp2=%f img=%d new %d\n", temp, b1, b2, temp1, temp2, *it, t);
                 *it = temp;
                 temp2 = temp1;
                 temp1 = temp;
             }
 //
-//            image.mesh[jxnumynum + iynum + y_num - 2] = temp3;
-//            image.mesh[jxnumynum + iynum + y_num - 1] = temp4;
+            image.mesh[jxnumynum + iynum + y_num - 2] = temp3;
+            image.mesh[jxnumynum + iynum + y_num - 1] = temp4;
         }
     }
 
 
-//#ifdef HAVE_OPENMP
-//#pragma omp parallel for default(shared)
-//#endif
-//    for (int64_t j = z_num - 1; j >= 0; --j) {
-//        const size_t jxnumynum = j * x_num * y_num;
-//
-//        for (int64_t i = x_num - 1; i >= 0; --i) {
-//            const size_t iynum = i * y_num;
-//
-//            float temp2 = image.mesh[jxnumynum + iynum + y_num - 1];
-//            float temp1 = image.mesh[jxnumynum + iynum + y_num - 2];
-//
-//            image.mesh[jxnumynum + iynum + y_num - 1]*=norm_factor;
-//            image.mesh[jxnumynum + iynum + y_num - 2]*=norm_factor;
-//
-//            for (auto it = (image.mesh.begin()+jxnumynum + iynum + y_num-3); it !=  (image.mesh.begin()+jxnumynum + iynum-1); --it) {
-//                float temp = temp1*b1 + temp2*b2 + *it;
-//                *it = temp*norm_factor;
-//                temp2 = temp1;
-//                temp1 = temp;
-//            }
-//        }
-//    }
+#ifdef HAVE_OPENMP
+#pragma omp parallel for default(shared)
+#endif
+    for (int64_t j = z_num - 1; j >= 0; --j) {
+        const size_t jxnumynum = j * x_num * y_num;
+
+        for (int64_t i = x_num - 1; i >= 0; --i) {
+            const size_t iynum = i * y_num;
+
+            float temp2 = image.mesh[jxnumynum + iynum + y_num - 1];
+            float temp1 = image.mesh[jxnumynum + iynum + y_num - 2];
+
+            image.mesh[jxnumynum + iynum + y_num - 1]*=norm_factor;
+            image.mesh[jxnumynum + iynum + y_num - 2]*=norm_factor;
+
+            for (auto it = (image.mesh.begin()+jxnumynum + iynum + y_num-3); it !=  (image.mesh.begin()+jxnumynum + iynum-1); --it) {
+                float temp = temp1*b1 + temp2*b2 + *it;
+                *it = temp*norm_factor;
+                temp2 = temp1;
+                temp1 = temp;
+            }
+        }
+    }
 }
 
 template<typename T>
