@@ -49,6 +49,9 @@ public:
     void threshold_gradient(MeshData<T> &grad, const MeshData<S> &img, const float Ip_th);
 
     template<typename T>
+    void bspline_filt_rec_y2(MeshData<T> &image, float lambda, float tol);
+
+    template<typename T>
     void bspline_filt_rec_y(MeshData<T> &image, float lambda, float tol);
 
     template<typename T>
@@ -148,6 +151,141 @@ inline float ComputeGradient::impulse_resp_back(float k,float rho,float omg,floa
     //  Impulse Response Function (nominator eq. 4.8, denominator from eq. 4.7)
 
     return c0*pow(rho,std::abs(k))*(cos(omg*std::abs(k)) + gamma*sin(omg*std::abs(k)))*(1.0/(pow((1 - 2.0*rho*cos(omg) + pow(rho,2)),2)));
+}
+
+//TODO: REMOVE ME AFTER TESTS OF CUDA
+template<typename T>
+void ComputeGradient::bspline_filt_rec_y2(MeshData<T>& image,float lambda,float tol){
+    //
+    //  Bevan Cheeseman 2016
+    //
+    // Recursive Filter Implimentation for Smoothing BSplines
+    // B-Spline Signal Processing: Part 11-Efficient Design and Applications, Unser 1993
+
+    float xi = 1 - 96*lambda + 24*lambda*sqrt(3 + 144*lambda); // eq 4.6
+    float rho = (24*lambda - 1 - sqrt(xi))/(24*lambda)*sqrt((1/xi)*(48*lambda + 24*lambda*sqrt(3 + 144*lambda))); // eq 4.5
+    float omg = atan(sqrt((1/xi)*(144*lambda - 1))); // eq 4.6
+
+    float c0 = (1+ pow(rho,2))/(1-pow(rho,2)) * (1 - 2*rho*cos(omg) + pow(rho,2))/(1 + 2*rho*cos(omg) + pow(rho,2)); // eq 4.8
+    float gamma = (1-pow(rho,2))/(1+pow(rho,2)) * (1/tan(omg)); // eq 4.8
+
+    const float b1 = 2*rho*cos(omg);
+    const float b2 = -pow(rho,2.0);
+
+    const size_t z_num = image.z_num;
+    const size_t x_num = image.x_num;
+    const size_t y_num = image.y_num;
+
+    const size_t k0 = std::max(std::min((size_t)(ceil(std::abs(log(tol)/log(rho)))),z_num),(size_t)2);
+//    const float norm_factor = pow((1 - 2.0*rho*cos(omg) + pow(rho,2)),2);
+
+    //////////////////////////////////////////////////////////////
+    //
+    //  Setting up boundary conditions
+    //
+    //////////////////////////////////////////////////////////////
+
+    // for boundaries
+    std::cout << "k0=" << k0 << std::endl;
+    std::vector<float> impulse_resp_vec_f(k0+3);  //forward
+    for (size_t k = 0; k < (k0+3); ++k) {
+        impulse_resp_vec_f[k] = impulse_resp(k,rho,omg);
+    }
+
+    std::vector<float> impulse_resp_vec_b(k0+3);  //backward
+    for (size_t k = 0; k < (k0+3); ++k) {
+        impulse_resp_vec_b[k] = impulse_resp_back(k,rho,omg,gamma,c0);
+    }
+
+    std::vector<float> bc1_vec(k0, 0);  //forward
+    //y(1) init
+    bc1_vec[1] = impulse_resp_vec_f[0];
+    for (size_t k = 0; k < k0; ++k) {
+        bc1_vec[k] += impulse_resp_vec_f[k+1];
+    }
+
+    std::vector<float> bc2_vec(k0, 0);  //backward
+    //y(0) init
+    for (size_t k = 0; k < k0; ++k) {
+        bc2_vec[k] = impulse_resp_vec_f[k];
+    }
+
+    std::vector<float> bc3_vec(k0, 0);  //forward
+    //y(N-1) init
+    bc3_vec[0] = impulse_resp_vec_b[1];
+    for (size_t k = 0; k < (k0-1); ++k) {
+        bc3_vec[k+1] += impulse_resp_vec_b[k] + impulse_resp_vec_b[k+2];
+    }
+
+    std::vector<float> bc4_vec(k0, 0);  //backward
+    //y(N) init
+    bc4_vec[0] = impulse_resp_vec_b[0];
+    for (size_t k = 1; k < k0; ++k) {
+        bc4_vec[k] += 2*impulse_resp_vec_b[k];
+    }
+
+
+    //forwards direction
+#ifdef HAVE_OPENMP
+#pragma omp parallel for default(shared)
+#endif
+    for (size_t z = 0; z < z_num; ++z) {
+        const size_t jxnumynum = z * x_num * y_num;
+
+        for (size_t x = 0; x < x_num; ++x) {
+            float temp1 = 0;
+            float temp2 = 0;
+            float temp3 = 0;
+            float temp4 = 0;
+            const size_t iynum = x * y_num;
+
+            for (size_t k = 0; k < k0; ++k) {
+                temp1 += bc1_vec[k]*image.mesh[jxnumynum + iynum + k];
+                temp2 += bc2_vec[k]*image.mesh[jxnumynum + iynum + k];
+                temp3 += bc3_vec[k]*image.mesh[jxnumynum + iynum + y_num - 1 - k];
+                temp4 += bc4_vec[k]*image.mesh[jxnumynum + iynum + y_num - 1 - k];
+            }
+
+//            //initialize the sequence
+            image.mesh[jxnumynum + iynum + 0] = temp2;
+            image.mesh[jxnumynum + iynum + 1] = temp1;
+
+            for (auto it = (image.mesh.begin()+jxnumynum + iynum + 2); it !=  (image.mesh.begin()+jxnumynum + iynum + y_num -2); ++it) {
+                float  temp = temp1*b1 + temp2*b2 + *it;
+                *it = temp;
+                temp2 = temp1;
+                temp1 = temp;
+            }
+//
+//            image.mesh[jxnumynum + iynum + y_num - 2] = temp3;
+//            image.mesh[jxnumynum + iynum + y_num - 1] = temp4;
+        }
+    }
+
+
+//#ifdef HAVE_OPENMP
+//#pragma omp parallel for default(shared)
+//#endif
+//    for (int64_t j = z_num - 1; j >= 0; --j) {
+//        const size_t jxnumynum = j * x_num * y_num;
+//
+//        for (int64_t i = x_num - 1; i >= 0; --i) {
+//            const size_t iynum = i * y_num;
+//
+//            float temp2 = image.mesh[jxnumynum + iynum + y_num - 1];
+//            float temp1 = image.mesh[jxnumynum + iynum + y_num - 2];
+//
+//            image.mesh[jxnumynum + iynum + y_num - 1]*=norm_factor;
+//            image.mesh[jxnumynum + iynum + y_num - 2]*=norm_factor;
+//
+//            for (auto it = (image.mesh.begin()+jxnumynum + iynum + y_num-3); it !=  (image.mesh.begin()+jxnumynum + iynum-1); --it) {
+//                float temp = temp1*b1 + temp2*b2 + *it;
+//                *it = temp*norm_factor;
+//                temp2 = temp1;
+//                temp1 = temp;
+//            }
+//        }
+//    }
 }
 
 template<typename T>
