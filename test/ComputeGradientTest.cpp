@@ -349,7 +349,7 @@ namespace {
 
             // Generate random mesh
             using ImgType = float ;
-            MeshData<ImgType> m(129, 129, 13);
+            MeshData<ImgType> m(129, 129, 512);
             std::cout << m << std::endl;
             std::random_device rd;
             std::mt19937 mt(rd());

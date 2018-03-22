@@ -235,9 +235,9 @@ __global__ void bsplineY(T *image, size_t x_num, size_t y_num, size_t z_num, flo
 
 extern __shared__ float sharedMem[];
 template<typename T>
-__global__ void bsplineYdirBoundary(T *image, size_t x_num, size_t y_num, size_t z_num, float *bc1_vec,
-                                    float *bc2_vec, float *bc3_vec, float *bc4_vec, size_t k0, float b1, float b2,
-                                    float norm_factor, float *boundary) {
+__global__ void bsplineYdirBoundary(T *image, size_t x_num, size_t y_num, size_t z_num,
+                                    const float *bc1_vec, const float *bc2_vec, const float *bc3_vec, const float *bc4_vec,
+                                    size_t k0, float *boundary) {
     const int xzIndexOfWorker = (blockIdx.x * blockDim.x) + threadIdx.x;
     const int xzIndexOfBlock = (blockIdx.x * blockDim.x);
 
@@ -446,7 +446,7 @@ void cudaFilterBsplineYdirection(MeshData<ImgType> &input, float lambda, float t
     if (true) {
         bsplineYdirBoundary<ImgType> << < numBlocks, threadsPerBlock,
                 (2 /*bc vectors*/) * (p.k0) * sizeof(float) + numOfThreads * (p.k0) * sizeof(ImgType) >> >
-                (cudaInput, input.x_num, input.y_num, input.z_num, bc1, bc2, bc3, bc4, p.k0, p.b1, p.b2, p.norm_factor, boundary);
+                (cudaInput, input.x_num, input.y_num, input.z_num, bc1, bc2, bc3, bc4, p.k0, boundary);
         float *boundaryHost = new float[boundaryLen]; //TODO: free it
         cudaMemcpy(boundaryHost, boundary, boundaryLen, cudaMemcpyDeviceToHost);
         bsplineYdirProcess<ImgType> << < numBlocks, threadsPerBlock,
