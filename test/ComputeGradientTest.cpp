@@ -355,7 +355,7 @@ namespace {
             std::mt19937 mt(rd());
             std::uniform_real_distribution<double> dist(0.0, 1.0);
             for (size_t i = 0; i < m.mesh.size(); ++i) {
-                m.mesh[i] = dist(mt);
+                m.mesh[i] = dist(mt) * 2;
             }
 
             const float lambda = 3;
