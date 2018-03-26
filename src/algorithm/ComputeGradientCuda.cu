@@ -118,10 +118,10 @@ BsplineParams prepareBsplineStuff(MeshData<T> & image, float lambda, float tol) 
 
     const size_t z_num = image.z_num;
     const size_t xxx = ceil(std::abs(log(tol)/log(rho)));
-    const size_t k0 = std::max( std::min(xxx, z_num), (size_t)2);
+    const size_t k0 = std::min(xxx, z_num);
 
     const float norm_factor = pow((1 - 2.0*rho*cos(omg) + pow(rho,2)),2);
-
+    std::cout << "GPU: " << xi << " " << rho << " " << omg << " " << gamma << " " << b1 << " " << b2 << " " << k0 << " " << norm_factor << std::endl;
     //////////////////////////////////////////////////////////////
     //
     //  Setting up boundary conditions
@@ -475,9 +475,235 @@ void cudaFilterBsplineYdirection(MeshData<ImgType> &input, float lambda, float t
     timer.stop_timer();
 }
 
+
+constexpr int numOfWorkersX = 64;
+template<typename T>
+__global__ void bsplineXdirProcess(T *image, const size_t x_num, const size_t y_num, const size_t z_num,
+                                   const float *bc1_vec, const float *bc2_vec, const float *bc3_vec, const float *bc4_vec,
+                                   size_t k0, float b1, float b2, float norm_factor, float *boundary) {
+    const int localId = threadIdx.x;
+    const int yOffset = blockIdx.x * blockDim.x;
+    const int64_t zOffset = blockIdx.z * blockDim.z * x_num * y_num;
+
+    if (yOffset + localId < y_num) {
+        float temp1 = 0;
+        float temp2 = 0;
+        float temp3 = 0;
+        float temp4 = 0;
+        // calculate boundary values
+        for (int k = 0; k < k0; ++k) {
+            T val = image[zOffset + k * y_num + yOffset + localId];
+            temp1 += bc1_vec[k] * val;
+            temp2 += bc2_vec[k] * val;
+            val = image[zOffset + (x_num - 1 - k) * y_num + yOffset + localId];
+            temp3 += bc3_vec[k] * val;
+            temp4 += bc4_vec[k] * val;
+        }
+        // s
+        image[zOffset + 0 * y_num + yOffset + localId] = temp2;
+        image[zOffset + 1 * y_num + yOffset + localId] = temp1;
+        image[zOffset + (x_num - 2) * y_num + yOffset + localId] = temp3 * norm_factor;
+        image[zOffset + (x_num - 1) * y_num + yOffset + localId] = temp4 * norm_factor;
+
+        int64_t offset = zOffset + 2 * y_num + yOffset + localId;
+        int64_t offsetLimit = zOffset + (x_num - 2) * y_num;
+        do {
+            // do calculations and store
+            const float temp = temp1 * b1 + temp2 * b2 + image[offset];
+            image[offset] = temp;
+            temp2 = temp1;
+            temp1 = temp;
+
+            offset += y_num;
+        } while (offset < offsetLimit);
+
+        offset = zOffset + (x_num - 3) * y_num + yOffset + localId;
+        offsetLimit = zOffset;
+        do {
+            // do calculations and store
+            const float temp = temp3 * b1 + temp4 * b2 + image[offset];
+            image[offset] = temp * norm_factor;
+            temp4 = temp3;
+            temp3 = temp;
+
+            offset -= y_num;
+        } while (offset >= offsetLimit);
+    }
+}
+
+template <typename ImgType>
+void cudaFilterBsplineXdirection(MeshData<ImgType> &input, float lambda, float tolerance) {
+    APRTimer timer;
+    timer.verbose_flag=true;
+
+    BsplineParams p = prepareBsplineStuff(input, lambda, tolerance);
+
+    timer.start_timer("cuda: memory alloc + data transfer to device");
+    size_t inputSize = input.mesh.size() * sizeof(ImgType);
+    ImgType *cudaInput;
+    cudaMalloc(&cudaInput, inputSize);
+    cudaMemcpy(cudaInput, input.mesh.get(), inputSize, cudaMemcpyHostToDevice);
+    float *boundary;
+    int boundaryLen = sizeof(float) * 4 * input.x_num * input.z_num;
+    cudaMalloc(&boundary, boundaryLen);
+
+    thrust::device_vector<float> d_bc1_vec(p.bc1_vec);
+    thrust::device_vector<float> d_bc2_vec(p.bc2_vec);
+    thrust::device_vector<float> d_bc3_vec(p.bc3_vec);
+    thrust::device_vector<float> d_bc4_vec(p.bc4_vec);
+    timer.stop_timer();
+
+    cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
+    cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
+
+    dim3 threadsPerBlock(numOfWorkersX, 1, 1);
+    dim3 numBlocks((input.y_num + threadsPerBlock.x - 1)/threadsPerBlock.x,
+                   1, //fixme
+                   (input.z_num + threadsPerBlock.z - 1)/threadsPerBlock.z);
+    std::cout << "Number of blocks  (x/y/z):  " << numBlocks.x << "/" << numBlocks.y << "/" << numBlocks.z << std::endl;
+    std::cout << "Number of threads (x/y/z): " << threadsPerBlock.x << "/" << threadsPerBlock.y << "/" << threadsPerBlock.z << std::endl;
+
+    float *bc1 = thrust::raw_pointer_cast(d_bc1_vec.data());
+    float *bc2 = thrust::raw_pointer_cast(d_bc2_vec.data());
+    float *bc3 = thrust::raw_pointer_cast(d_bc3_vec.data());
+    float *bc4 = thrust::raw_pointer_cast(d_bc4_vec.data());
+
+    timer.start_timer("cuda: calculations on device ============================================================================ ");
+        bsplineXdirProcess<ImgType> <<< numBlocks, threadsPerBlock >>>
+                (cudaInput, input.x_num, input.y_num, input.z_num, bc1, bc2, bc3, bc4, p.k0, p.b1, p.b2, p.norm_factor, boundary);
+
+    cudaDeviceSynchronize();
+
+    timer.stop_timer();
+
+    timer.start_timer("cuda: transfer data from device and freeing memory");
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess)printf("Error: %s\n", cudaGetErrorString(err));
+
+    cudaMemcpy((void*)input.mesh.get(), cudaInput, inputSize, cudaMemcpyDeviceToHost);
+    cudaFree(cudaInput);
+    timer.stop_timer();
+}
+
+template<typename T>
+__global__ void bsplineZdirProcess(T *image, const size_t x_num, const size_t y_num, const size_t z_num,
+                                   const float *bc1_vec, const float *bc2_vec, const float *bc3_vec, const float *bc4_vec,
+                                   size_t k0, float b1, float b2, float norm_factor, float *boundary) {
+    const int localId = threadIdx.x;
+    const int yOffset = blockIdx.x * blockDim.x;
+    const int64_t xOffset = blockIdx.z * blockDim.z * y_num;
+    const int64_t zDirOffset = x_num * y_num;
+
+    if (yOffset + localId < y_num) {
+        float temp1 = 0;
+        float temp2 = 0;
+        float temp3 = 0;
+        float temp4 = 0;
+        // calculate boundary values
+        for (int k = 0; k < k0; ++k) {
+            T val = image[xOffset + k * zDirOffset + yOffset + localId];
+            temp1 += bc1_vec[k] * val;
+            temp2 += bc2_vec[k] * val;
+            val = image[xOffset + (z_num - 1 - k) * zDirOffset + yOffset + localId];
+            temp3 += bc3_vec[k] * val;
+            temp4 += bc4_vec[k] * val;
+        }
+        // s
+        image[xOffset + 0 * zDirOffset + yOffset + localId] = temp2;
+        image[xOffset + 1 * zDirOffset  + yOffset + localId] = temp1;
+        image[xOffset + (z_num - 2) * zDirOffset + yOffset + localId] = temp3 * norm_factor;
+        image[xOffset + (z_num - 1) * zDirOffset + yOffset + localId] = temp4 * norm_factor;
+
+        int64_t offset = xOffset + 2 * zDirOffset + yOffset + localId;
+        int64_t offsetLimit = xOffset + (z_num - 2) * zDirOffset;
+        do {
+            // do calculations and store
+            const float temp = temp1 * b1 + temp2 * b2 + image[offset];
+            image[offset] = temp;
+            temp2 = temp1;
+            temp1 = temp;
+
+            offset += zDirOffset;
+        } while (offset < offsetLimit);
+
+        offset = xOffset + (z_num - 3) * zDirOffset + yOffset + localId;
+        offsetLimit = xOffset;
+        do {
+            // do calculations and store
+            const float temp = temp3 * b1 + temp4 * b2 + image[offset];
+            image[offset] = temp * norm_factor;
+            temp4 = temp3;
+            temp3 = temp;
+
+            offset -= zDirOffset;
+        } while (offset >= offsetLimit);
+    }
+}
+
+template <typename ImgType>
+void cudaFilterBsplineZdirection(MeshData<ImgType> &input, float lambda, float tolerance) {
+    APRTimer timer;
+    timer.verbose_flag=true;
+
+    BsplineParams p = prepareBsplineStuff(input, lambda, tolerance);
+
+    timer.start_timer("cuda: memory alloc + data transfer to device");
+    size_t inputSize = input.mesh.size() * sizeof(ImgType);
+    ImgType *cudaInput;
+    cudaMalloc(&cudaInput, inputSize);
+    cudaMemcpy(cudaInput, input.mesh.get(), inputSize, cudaMemcpyHostToDevice);
+    float *boundary;
+    int boundaryLen = sizeof(float) * 4 * input.x_num * input.z_num;
+    cudaMalloc(&boundary, boundaryLen);
+
+    thrust::device_vector<float> d_bc1_vec(p.bc1_vec);
+    thrust::device_vector<float> d_bc2_vec(p.bc2_vec);
+    thrust::device_vector<float> d_bc3_vec(p.bc3_vec);
+    thrust::device_vector<float> d_bc4_vec(p.bc4_vec);
+    timer.stop_timer();
+
+    cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
+    cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
+
+    dim3 threadsPerBlock(numOfWorkersX, 1, 1);
+    dim3 numBlocks((input.y_num + threadsPerBlock.x - 1)/threadsPerBlock.x,
+                   1, //fixme
+                   (input.x_num + threadsPerBlock.z - 1)/threadsPerBlock.z);
+    std::cout << "Number of blocks  (x/y/z):  " << numBlocks.x << "/" << numBlocks.y << "/" << numBlocks.z << std::endl;
+    std::cout << "Number of threads (x/y/z): " << threadsPerBlock.x << "/" << threadsPerBlock.y << "/" << threadsPerBlock.z << std::endl;
+
+    float *bc1 = thrust::raw_pointer_cast(d_bc1_vec.data());
+    float *bc2 = thrust::raw_pointer_cast(d_bc2_vec.data());
+    float *bc3 = thrust::raw_pointer_cast(d_bc3_vec.data());
+    float *bc4 = thrust::raw_pointer_cast(d_bc4_vec.data());
+
+    timer.start_timer("cuda: calculations on device ============================================================================ ");
+    bsplineZdirProcess<ImgType> <<< numBlocks, threadsPerBlock >>>
+                                               (cudaInput, input.x_num, input.y_num, input.z_num, bc1, bc2, bc3, bc4, p.k0, p.b1, p.b2, p.norm_factor, boundary);
+
+    cudaDeviceSynchronize();
+
+    timer.stop_timer();
+
+    timer.start_timer("cuda: transfer data from device and freeing memory");
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess)printf("Error: %s\n", cudaGetErrorString(err));
+
+    cudaMemcpy((void*)input.mesh.get(), cudaInput, inputSize, cudaMemcpyDeviceToHost);
+    cudaFree(cudaInput);
+    timer.stop_timer();
+}
+
 void emptyCallForTemplateInstantiation() {
     MeshData<float> f = MeshData<float>(0,0,0);
-    cudaFilterBsplineYdirection(f, 3, 0.1);
     MeshData<uint16_t> u16 = MeshData<uint16_t>(0,0,0);
+
+    cudaFilterBsplineYdirection(f, 3, 0.1);
     cudaFilterBsplineYdirection(u16, 3, 0.1);
+
+    cudaFilterBsplineXdirection(f, 3, 0.1);
+    cudaFilterBsplineXdirection(u16, 3, 0.1);
+
+    cudaFilterBsplineZdirection(f, 3, 0.1);
+    cudaFilterBsplineZdirection(u16, 3, 0.1);
 }

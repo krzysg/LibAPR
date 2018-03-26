@@ -463,9 +463,9 @@ void ComputeGradient::bspline_filt_rec_x(MeshData<T>& image,float lambda,float t
     const size_t x_num = image.x_num;
     const size_t y_num = image.y_num;
 
-    const size_t k0 = std::min((size_t)(ceil(std::abs(log(tol)/log(rho)))),z_num);
+    const size_t k0 =          std::min((size_t)(ceil(std::abs(log(tol)/log(rho)))),z_num);
     const float norm_factor = pow((1 - 2.0*rho*cos(omg) + pow(rho,2)),2);
-
+    std::cout << "CPU: " << xi << " " << rho << " " << omg << " " << gamma << " " << b1 << " " << b2 << " " << k0 << " " << norm_factor << std::endl;
     //////////////////////////////////////////////////////////////
     //
     //  Setting up boundary conditions
@@ -515,7 +515,7 @@ void ComputeGradient::bspline_filt_rec_x(MeshData<T>& image,float lambda,float t
     std::vector<float> temp_vec2(y_num,0);
     std::vector<float> temp_vec3(y_num,0);
     std::vector<float> temp_vec4(y_num,0);
-
+//    std::cout << "CPU k0 = " << k0 << std::endl;
     #ifdef HAVE_OPENMP
 	#pragma omp parallel for default(shared) firstprivate(temp_vec1, temp_vec2, temp_vec3, temp_vec4)
     #endif
@@ -533,6 +533,10 @@ void ComputeGradient::bspline_filt_rec_x(MeshData<T>& image,float lambda,float t
                 //forwards boundary condition
                 temp_vec1[k] += bc1_vec[i]*image.mesh[jxnumynum + i*y_num + k];
                 temp_vec2[k] += bc2_vec[i]*image.mesh[jxnumynum + i*y_num + k];
+//                if (k == 0) {
+//                    std::cout << "temp1: " << i << " " << bc1_vec[i] << " * " << image.mesh[jxnumynum + i*y_num + k] << std::endl;
+//                    std::cout << "temp2: " << bc2_vec[i] << " * " << image.mesh[jxnumynum + i*y_num + k] << std::endl;
+//                }
                 //backwards boundary condition
                 temp_vec3[k] += bc3_vec[i]*image.mesh[jxnumynum + (x_num - 1 - i)*y_num + k];
                 temp_vec4[k] += bc4_vec[i]*image.mesh[jxnumynum + (x_num - 1 - i)*y_num + k];
